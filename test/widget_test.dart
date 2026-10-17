@@ -23,6 +23,25 @@ void main() {
     expect(find.text('新建'), findsOneWidget);
   });
 
+  testWidgets('新建页输入内容后「创建」才可用，点了能建出来', (WidgetTester tester) async {
+    final TodoStore store = await pumpApp(tester);
+    await tester.tap(find.text('新建'));
+    await tester.pumpAndSettle();
+
+    final Finder createButton = find.widgetWithText(TextButton, '创建');
+    expect(tester.widget<TextButton>(createButton).onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField).first, '买菜');
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextButton>(createButton).onPressed, isNotNull);
+
+    await tester.tap(createButton);
+    await tester.pumpAndSettle();
+
+    expect(store.todos.single.title, '买菜');
+    expect(find.text('买菜'), findsOneWidget);
+  });
+
   testWidgets('创建后卡片显示标题与正文预览', (WidgetTester tester) async {
     final TodoStore store = await pumpApp(tester);
     store.create(title: '买牛奶', body: '顺路去超市买两盒牛奶。再看看有没有鸡蛋。');
