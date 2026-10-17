@@ -52,3 +52,6 @@ android/key.properties
 android/app/release.jks
 *.jks
 *.keystore
+
+# 本地维护笔记（不入库）
+.agents/
