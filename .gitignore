@@ -54,5 +54,7 @@ android/app/release.jks
 *.jks
 *.keystore
 
-# 本地维护笔记（不入库）
+# 本地维护笔记与工具配置（不入库）
 .agents/
+AGENTS.md
+.pi/
