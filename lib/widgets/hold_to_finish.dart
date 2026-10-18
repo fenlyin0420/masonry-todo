@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 /// 长按计时：按住满 [duration] 触发 [onFinish]，松手、滑动或指针丢失都会取消，
 /// 没触发完成的松手则算一次轻点（[onTap]）。
 ///
+/// 触感反馈交给 [onFinish] 的调用方：完成待办和普通操作的手感不一样。
 /// 直接用指针事件而不是 tap 手势竞技场：竞技场里 onTapUp 不保证到达
 /// （比如按住期间 widget 被重建、指针路径失效），会让计时器无人取消地跑完。
 class HoldToFinish extends StatefulWidget {
@@ -52,7 +52,6 @@ class HoldToFinishState extends State<HoldToFinish>
   void _onStatus(AnimationStatus status) {
     if (status != AnimationStatus.completed || _fired) return;
     _fired = true;
-    HapticFeedback.heavyImpact();
     widget.onFinish();
   }
 

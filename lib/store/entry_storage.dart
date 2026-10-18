@@ -4,49 +4,57 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../models/todo.dart';
+import '../models/entry.dart';
 
 /// 首页展示形态。
 enum ViewMode { grid, list }
 
-/// 落盘的一份完整快照：所有 todo + 首页展示形态。
+/// 落盘的一份完整快照：所有条目 + 首页展示形态 + 当前标签页。
 class AppSnapshot {
-  const AppSnapshot({required this.todos, this.viewMode = ViewMode.grid});
+  const AppSnapshot({
+    required this.entries,
+    this.viewMode = ViewMode.grid,
+    this.kind = EntryKind.todo,
+  });
 
-  final List<Todo> todos;
+  final List<Entry> entries;
   final ViewMode viewMode;
+  final EntryKind kind;
 
   factory AppSnapshot.fromJson(Map<String, dynamic> json) {
-    final todos = <Todo>[];
-    final rawTodos = json['todos'];
-    if (rawTodos is List) {
-      for (final raw in rawTodos) {
+    final entries = <Entry>[];
+    // v1.2 起字段叫 entries；旧版本写的是 todos，读的时候两者都认。
+    final rawEntries = json['entries'] ?? json['todos'];
+    if (rawEntries is List) {
+      for (final raw in rawEntries) {
         if (raw is Map) {
-          todos.add(Todo.fromJson(Map<String, dynamic>.from(raw)));
+          entries.add(Entry.fromJson(Map<String, dynamic>.from(raw)));
         }
       }
     }
     return AppSnapshot(
-      todos: todos,
+      entries: entries,
       viewMode: json['viewMode'] == 'list' ? ViewMode.list : ViewMode.grid,
+      kind: entryKindFromJson(json['kind']),
     );
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'version': 1,
+    'version': 2,
     'viewMode': viewMode == ViewMode.list ? 'list' : 'grid',
-    'todos': todos.map((todo) => todo.toJson()).toList(),
+    'kind': kind.name,
+    'entries': entries.map((entry) => entry.toJson()).toList(),
   };
 }
 
-abstract class TodoStorage {
+abstract class EntryStorage {
   Future<AppSnapshot> load();
   Future<void> save(AppSnapshot snapshot);
 }
 
 /// JSON 文件存储：写入临时文件再 rename，避免半截文件。
-class FileTodoStorage implements TodoStorage {
-  FileTodoStorage({Future<Directory> Function()? directoryProvider})
+class FileEntryStorage implements EntryStorage {
+  FileEntryStorage({Future<Directory> Function()? directoryProvider})
     : _directoryProvider =
           directoryProvider ?? getApplicationDocumentsDirectory;
 
@@ -59,18 +67,19 @@ class FileTodoStorage implements TodoStorage {
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
+    // 目录与文件名沿用 1.x 的命名，升级时不搬数据。
     return File('${dir.path}/todos.json');
   }();
 
   @override
   Future<AppSnapshot> load() async {
     final file = await _resolve();
-    if (!await file.exists()) return const AppSnapshot(todos: <Todo>[]);
+    if (!await file.exists()) return const AppSnapshot(entries: <Entry>[]);
     try {
       final raw = await file.readAsString();
-      if (raw.trim().isEmpty) return const AppSnapshot(todos: <Todo>[]);
+      if (raw.trim().isEmpty) return const AppSnapshot(entries: <Entry>[]);
       final decoded = json.decode(raw);
-      if (decoded is! Map) return const AppSnapshot(todos: <Todo>[]);
+      if (decoded is! Map) return const AppSnapshot(entries: <Entry>[]);
       return AppSnapshot.fromJson(Map<String, dynamic>.from(decoded));
     } catch (error) {
       debugPrint('读取 todos.json 失败：$error');
@@ -78,7 +87,7 @@ class FileTodoStorage implements TodoStorage {
       try {
         await file.rename('${file.path}.corrupt');
       } catch (_) {}
-      return const AppSnapshot(todos: <Todo>[]);
+      return const AppSnapshot(entries: <Entry>[]);
     }
   }
 
@@ -92,8 +101,8 @@ class FileTodoStorage implements TodoStorage {
 }
 
 /// 内存实现，测试与预览用。
-class MemoryTodoStorage implements TodoStorage {
-  MemoryTodoStorage([this.snapshot = const AppSnapshot(todos: <Todo>[])]);
+class MemoryEntryStorage implements EntryStorage {
+  MemoryEntryStorage([this.snapshot = const AppSnapshot(entries: <Entry>[])]);
 
   AppSnapshot snapshot;
   int saveCount = 0;

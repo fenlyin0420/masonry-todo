@@ -3,10 +3,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:masonry_todo/models/todo.dart';
+import 'package:masonry_todo/models/entry.dart';
 import 'package:masonry_todo/store/note_image_store.dart';
-import 'package:masonry_todo/store/todo_storage.dart';
-import 'package:masonry_todo/store/todo_store.dart';
+import 'package:masonry_todo/store/entry_storage.dart';
+import 'package:masonry_todo/store/entry_store.dart';
 
 void main() {
   group('Note 带图片的序列化', () {
@@ -43,9 +43,9 @@ void main() {
 
   group('addNote 图片', () {
     test('纯图片（无文字）可以发', () async {
-      final TodoStore store = TodoStore(MemoryTodoStorage());
+      final EntryStore store = EntryStore(MemoryEntryStorage());
       await store.load();
-      final Todo todo = store.create(title: '看图');
+      final Entry todo = store.create(title: '看图');
       final Note? note = store.addNote(
         todo.id,
         '',
@@ -58,9 +58,9 @@ void main() {
     });
 
     test('无文字也无图片被拒绝', () async {
-      final TodoStore store = TodoStore(MemoryTodoStorage());
+      final EntryStore store = EntryStore(MemoryEntryStorage());
       await store.load();
-      final Todo todo = store.create(title: '拒绝我');
+      final Entry todo = store.create(title: '拒绝我');
       expect(store.addNote(todo.id, '', now: DateTime(2026, 10, 1)), isNull);
     });
   });

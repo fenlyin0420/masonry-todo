@@ -191,7 +191,7 @@ class _UpdateWatchState extends State<UpdateWatch> {
         content: const SizedBox(
           width: double.maxFinite,
           child: Text(
-            '系统要求先允许 Masonry Todo 安装未知应用。'
+            '系统要求先允许拾记安装未知应用。'
             '在设置页开启后回来点「重试」。',
           ),
         ),

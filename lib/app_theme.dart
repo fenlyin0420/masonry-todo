@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 const Color _seed = Color(0xFF5B7CFA);
 
@@ -30,6 +31,17 @@ Color cardColorFor(BuildContext context, String id) {
   );
 }
 
+/// 已完成卡片：抽掉彩色底，只留一层极淡的中性色，让完成区安静下来。
+Color doneCardColorFor(BuildContext context) {
+  final scheme = Theme.of(context).colorScheme;
+  return Color.alphaBlend(
+    scheme.surfaceContainerHighest.withValues(
+      alpha: scheme.brightness == Brightness.dark ? 0.30 : 0.50,
+    ),
+    scheme.surface,
+  );
+}
+
 ThemeData buildAppTheme(Brightness brightness) {
   final scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: brightness);
   final base = ThemeData(colorScheme: scheme);
@@ -43,6 +55,16 @@ ThemeData buildAppTheme(Brightness brightness) {
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
+      // AppBar 透明时 Flutter 会按黑色背景推断图标颜色，状态栏会变成白字；
+      // 显式跟随主题亮度指定，并保持状态栏透明。
+      systemOverlayStyle:
+          (brightness == Brightness.light
+                  ? SystemUiOverlayStyle.dark
+                  : SystemUiOverlayStyle.light)
+              .copyWith(
+                statusBarColor: Colors.transparent,
+                systemStatusBarContrastEnforced: false,
+              ),
       titleTextStyle: base.textTheme.titleLarge?.copyWith(
         fontWeight: FontWeight.w700,
         color: scheme.onSurface,

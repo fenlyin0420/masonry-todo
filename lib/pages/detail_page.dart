@@ -4,17 +4,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../models/todo.dart';
-import '../models/todo_text.dart';
+import '../models/entry.dart';
+import '../models/entry_text.dart';
+import 'entry_editor_page.dart';
+import '../store/entry_store.dart';
 import '../store/note_image_store.dart';
-import '../store/todo_store.dart';
 import '../widgets/store_scope.dart';
 
-/// 详情：第一楼是这条 todo 本身（标题可空），分割线以下是记录想法的楼层。
+/// 详情：第一楼是这条内容本身（标题可空），分割线以下是记录想法的楼层。
 class DetailPage extends StatefulWidget {
-  const DetailPage({super.key, required this.todoId});
+  const DetailPage({super.key, required this.entryId});
 
-  final String todoId;
+  final String entryId;
 
   @override
   State<DetailPage> createState() => _DetailPageState();
@@ -77,7 +78,7 @@ class _DetailPageState extends State<DetailPage> {
     final String text = _input.text.trim();
     final File? image = _pendingImage;
     if (text.isEmpty && image == null) return;
-    final TodoStore store = StoreScope.of(context);
+    final EntryStore store = StoreScope.of(context);
     String? imageName;
     if (image != null) {
       try {
@@ -94,9 +95,9 @@ class _DetailPageState extends State<DetailPage> {
         _snack('图片保存失败，这条记录只发了文字');
       }
     }
-    final Note? note = store.addNote(widget.todoId, text, image: imageName);
+    final Note? note = store.addNote(widget.entryId, text, image: imageName);
     if (note == null && imageName != null) {
-      // todo 已不存在：清掉刚落盘的图片，别留孤儿文件。
+      // 条目已不存在：清掉刚落盘的图片，别留孤儿文件。
       unawaited(_images.deleteFile(imageName));
     }
     if (mounted) setState(() => _pendingImage = null);
@@ -112,13 +113,14 @@ class _DetailPageState extends State<DetailPage> {
     });
   }
 
-  Future<void> _confirmDelete(Todo todo) async {
+  Future<void> _confirmDelete(Entry entry) async {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    final String kindName = entry.isTodo ? '待办' : '灵感';
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) => AlertDialog(
-        title: const Text('删除这条 Todo？'),
-        content: Text('「${displayTitle(todo)}」以及它的全部记录都会被删掉，无法恢复。'),
+        title: Text('删除这条$kindName？'),
+        content: Text('「${displayTitle(entry)}」以及它的全部记录都会被删掉，无法恢复。'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -133,11 +135,11 @@ class _DetailPageState extends State<DetailPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    final List<String> imageNames = todo.notes
+    final List<String> imageNames = entry.notes
         .map((note) => note.image)
         .whereType<String>()
         .toList();
-    StoreScope.of(context).delete(todo.id);
+    StoreScope.of(context).delete(entry.id);
     Navigator.of(context).pop();
     // 先出页面再清图片，避免等待期间闪一帧空态。
     unawaited(_cleanupImages(imageNames));
@@ -164,24 +166,30 @@ class _DetailPageState extends State<DetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final TodoStore store = StoreScope.of(context);
-    final Todo? todo = store.byId(widget.todoId);
-    if (todo == null) {
+    final EntryStore store = StoreScope.of(context);
+    final Entry? entry = store.byId(widget.entryId);
+    if (entry == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('详情')),
-        body: const Center(child: Text('这条 todo 已经不在了')),
+        body: const Center(child: Text('这条内容已经不在了')),
       );
     }
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final String kindName = entry.isTodo ? '待办' : '灵感';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('详情'),
+        title: Text('$kindName详情'),
         actions: <Widget>[
           IconButton(
+            tooltip: '编辑',
+            onPressed: () => _openEditor(entry),
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
             tooltip: '删除',
-            onPressed: () => _confirmDelete(todo),
+            onPressed: () => _confirmDelete(entry),
             icon: const Icon(Icons.delete_outline_rounded),
           ),
           const SizedBox(width: 4),
@@ -194,24 +202,26 @@ class _DetailPageState extends State<DetailPage> {
               controller: _scroll,
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
               children: <Widget>[
-                _OriginFloor(todo: todo),
-                _ThreadDivider(count: todo.notes.length),
-                if (todo.notes.isEmpty)
+                _OriginFloor(entry: entry),
+                _ThreadDivider(count: entry.notes.length),
+                if (entry.notes.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 28),
                     child: Center(
                       child: Text(
-                        '还没有记录，写下你对这个任务的想法',
+                        entry.isTodo
+                            ? '还没有记录，写下你对这个任务的记录'
+                            : '还没有记录，写下这个念头延伸出的想法',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
                     ),
                   ),
-                for (int i = 0; i < todo.notes.length; i++)
+                for (int i = 0; i < entry.notes.length; i++)
                   _NoteFloor(
                     floor: i + 2,
-                    note: todo.notes[i],
+                    note: entry.notes[i],
                     images: _images,
                   ),
               ],
@@ -223,6 +233,7 @@ class _DetailPageState extends State<DetailPage> {
             onSend: _send,
             pendingImage: _pendingImage,
             canSend: _input.text.trim().isNotEmpty || _pendingImage != null,
+            hintText: entry.isTodo ? '写下你的想法、心得…' : '补充这个念头的延伸…',
             onPickImage: _pickImage,
             onDropPendingImage: _dropPendingImage,
           ),
@@ -230,20 +241,29 @@ class _DetailPageState extends State<DetailPage> {
       ),
     );
   }
+
+  Future<void> _openEditor(Entry entry) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) =>
+            EntryEditorPage(entryId: entry.id),
+      ),
+    );
+  }
 }
 
-/// 第一楼：这条 todo 本身。
+/// 第一楼：这条条目本身。
 class _OriginFloor extends StatelessWidget {
-  const _OriginFloor({required this.todo});
+  const _OriginFloor({required this.entry});
 
-  final Todo todo;
+  final Entry entry;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final String title = todo.title.trim();
-    final String body = todo.body.trim();
+    final String title = entry.title.trim();
+    final String body = entry.body.trim();
     final TextStyle? timeStyle = theme.textTheme.labelSmall?.copyWith(
       color: scheme.onSurfaceVariant,
     );
@@ -278,7 +298,7 @@ class _OriginFloor extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            _StatusPill(done: todo.done),
+            _StatusPill(entry: entry),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -286,15 +306,15 @@ class _OriginFloor extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
                   Text(
-                    todo.done
-                        ? '创建于 ${formatMinute(todo.createdAt)}'
-                        : formatMinute(todo.createdAt),
+                    entry.isDone
+                        ? '创建于 ${formatMinute(entry.createdAt)}'
+                        : formatMinute(entry.createdAt),
                     textAlign: TextAlign.right,
                     style: timeStyle,
                   ),
-                  if (todo.done)
+                  if (entry.isDone)
                     Text(
-                      '完成于 ${formatMinute(todo.doneAt ?? todo.createdAt)}',
+                      '完成于 ${formatMinute(entry.doneAt ?? entry.createdAt)}',
                       textAlign: TextAlign.right,
                       style: timeStyle,
                     ),
@@ -309,14 +329,20 @@ class _OriginFloor extends StatelessWidget {
 }
 
 class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.done});
+  const _StatusPill({required this.entry});
 
-  final bool done;
+  final Entry entry;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final Color color = done ? scheme.onSurfaceVariant : scheme.primary;
+    final bool done = entry.isDone;
+    final String label = !entry.isTodo
+        ? '灵感'
+        : (done ? '已完成' : '进行中');
+    final Color color = !entry.isTodo
+        ? scheme.tertiary
+        : (done ? scheme.onSurfaceVariant : scheme.primary);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -324,7 +350,7 @@ class _StatusPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        done ? '已完成' : '进行中',
+        label,
         style: Theme.of(context).textTheme.labelSmall
             ?.copyWith(color: color, fontWeight: FontWeight.w600),
       ),
@@ -332,7 +358,7 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-/// 分割线：上面是 todo 本体，下面是记录。
+/// 分割线：上面是条目本体，下面是记录。
 class _ThreadDivider extends StatelessWidget {
   const _ThreadDivider({required this.count});
 
@@ -597,6 +623,7 @@ class _Composer extends StatelessWidget {
     required this.onSend,
     required this.pendingImage,
     required this.canSend,
+    required this.hintText,
     required this.onPickImage,
     required this.onDropPendingImage,
   });
@@ -606,6 +633,7 @@ class _Composer extends StatelessWidget {
   final VoidCallback onSend;
   final File? pendingImage;
   final bool canSend;
+  final String hintText;
   final VoidCallback onPickImage;
   final VoidCallback onDropPendingImage;
 
@@ -678,8 +706,8 @@ class _Composer extends StatelessWidget {
                       maxLines: 4,
                       keyboardType: TextInputType.multiline,
                       textInputAction: TextInputAction.newline,
-                      decoration: const InputDecoration(
-                        hintText: '写下你的想法、心得…',
+                      decoration: InputDecoration(
+                        hintText: hintText,
                         isDense: true,
                       ),
                     ),

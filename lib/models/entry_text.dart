@@ -1,4 +1,4 @@
-import 'todo.dart';
+import 'entry.dart';
 
 const List<String> _sentenceEnders = <String>[
   '。',
@@ -30,18 +30,19 @@ String firstSentence(String text) {
 }
 
 /// 卡片标题：有标题用标题，没有标题取正文第一句，都为空时给个占位。
-String displayTitle(Todo todo) {
-  final title = todo.title.trim();
+String displayTitle(Entry entry) {
+  final title = entry.title.trim();
   if (title.isNotEmpty) return title;
-  final sentence = firstSentence(todo.body);
-  return sentence.isEmpty ? '未命名' : sentence;
+  final sentence = firstSentence(entry.body);
+  if (sentence.isNotEmpty) return sentence;
+  return entry.isTodo ? '未命名待办' : '未命名灵感';
 }
 
 /// 卡片正文预览：若标题取自正文第一句，预览就从第二句开始，避免重复。
-String bodyPreview(Todo todo) {
-  final body = todo.body.trim();
+String bodyPreview(Entry entry) {
+  final body = entry.body.trim();
   if (body.isEmpty) return '';
-  if (todo.title.trim().isNotEmpty) return body;
+  if (entry.title.trim().isNotEmpty) return body;
   final sentence = firstSentence(body);
   if (sentence.isEmpty) return '';
   return body.substring(sentence.length).trim();
@@ -54,4 +55,15 @@ String formatMinute(DateTime time) {
   final local = time.toLocal();
   return '${local.year}-${_two(local.month)}-${_two(local.day)} '
       '${_two(local.hour)}:${_two(local.minute)}';
+}
+
+/// 卡片上的短时间：同年省掉年份，例如 10-18 09:32。
+String formatCardTime(DateTime time, {DateTime? now}) {
+  final local = time.toLocal();
+  final current = (now ?? DateTime.now()).toLocal();
+  final String minute = '${_two(local.hour)}:${_two(local.minute)}';
+  if (local.year == current.year) {
+    return '${_two(local.month)}-${_two(local.day)} $minute';
+  }
+  return '${local.year}-${_two(local.month)}-${_two(local.day)} $minute';
 }

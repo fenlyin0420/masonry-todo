@@ -92,7 +92,7 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME#v}"
             {
-              echo "Masonry Todo **${VERSION}**"
+              echo "拾记 **${VERSION}**"
               echo ""
               echo "**Assets**"
               echo ""
@@ -115,7 +115,7 @@ jobs:
             gh release upload "$TAG" "$DIR"/masonry-todo-*.apk --clobber
           else
             gh release create "$TAG" \
-              --title "Masonry Todo ${TAG#v}" \
+              --title "拾记 ${TAG#v}" \
               --notes-file release-notes.md \
               "$DIR"/masonry-todo-*.apk
           fi

@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../models/todo.dart';
-import '../models/todo_text.dart';
+import '../models/entry.dart';
+import '../models/entry_text.dart';
 import '../nav.dart';
-import '../store/todo_storage.dart';
-import '../store/todo_store.dart';
+import '../store/entry_storage.dart';
+import '../store/entry_store.dart';
 import '../update/update_controller.dart';
+import '../widgets/entry_card.dart';
+import '../widgets/entry_row.dart';
 import '../widgets/masonry_grid.dart';
 import '../widgets/store_scope.dart';
-import '../widgets/todo_card.dart';
-import '../widgets/todo_row.dart';
 import '../widgets/update_scope.dart';
 import '../widgets/update_watch.dart';
 
@@ -18,10 +18,12 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final TodoStore store = StoreScope.of(context);
+    final EntryStore store = StoreScope.of(context);
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<Todo> todos = store.todos;
+    final EntryKind kind = store.kind;
+    final bool isTodo = kind == EntryKind.todo;
+    final List<Entry> entries = store.visibleEntries;
     final UpdateController? update = UpdateScope.of(context);
 
     final Widget page = Scaffold(
@@ -31,12 +33,10 @@ class HomePage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Text('Masonry Todo'),
+            const Text('拾记'),
             const SizedBox(height: 2),
             Text(
-              todos.isEmpty
-                  ? '还没有记录'
-                  : '${store.activeCount} 项未完成 · 共 ${todos.length} 项',
+              _subtitle(store, kind),
               style: theme.textTheme.labelSmall?.copyWith(
                 color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w400,
@@ -58,49 +58,221 @@ class HomePage extends StatelessWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => openCreate(context),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('新建'),
+        onPressed: () => openCreate(context, kind),
+        icon: Icon(
+          isTodo ? Icons.add_rounded : Icons.lightbulb_outline_rounded,
+        ),
+        label: Text(isTodo ? '新建待办' : '记灵感'),
       ),
-      body: todos.isEmpty
-          ? const _EmptyState()
-          : (store.viewMode == ViewMode.grid
-                ? SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-                    child: MasonryTwoColumn<Todo>(
-                      items: todos,
-                      heightEstimator: _estimateCardHeight,
-                      itemBuilder: (BuildContext context, Todo todo) =>
-                          TodoCard(key: ValueKey<String>(todo.id), todo: todo),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-                    itemCount: todos.length,
-                    separatorBuilder: (BuildContext context, int index) =>
-                        const SizedBox(height: 10),
-                    itemBuilder: (BuildContext context, int index) {
-                      final Todo todo = todos[index];
-                      return TodoRow(
-                        key: ValueKey<String>(todo.id),
-                        todo: todo,
-                      );
-                    },
-                  )),
+      body: Column(
+        children: <Widget>[
+          _KindTabs(
+            kind: kind,
+            todoCount: store.activeCount(),
+            ideaCount: store.countOf(EntryKind.idea),
+            onChanged: store.setKind,
+          ),
+          Expanded(
+            child: entries.isEmpty
+                ? _EmptyState(kind: kind)
+                : (store.viewMode == ViewMode.grid
+                      ? SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                          child: MasonryTwoColumn<Entry>(
+                            items: entries,
+                            heightEstimator: _estimateCardHeight,
+                            itemBuilder: (BuildContext context, Entry entry) =>
+                                EntryCard(
+                                  key: ValueKey<String>(entry.id),
+                                  entry: entry,
+                                ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                          itemCount: entries.length,
+                          separatorBuilder:
+                              (BuildContext context, int index) =>
+                                  const SizedBox(height: 10),
+                          itemBuilder: (BuildContext context, int index) {
+                            final Entry entry = entries[index];
+                            return EntryRow(
+                              key: ValueKey<String>(entry.id),
+                              entry: entry,
+                            );
+                          },
+                        )),
+          ),
+        ],
+      ),
     );
     if (update == null) return page;
     return UpdateWatch(controller: update, child: page);
   }
 
+  static String _subtitle(EntryStore store, EntryKind kind) {
+    if (kind == EntryKind.idea) {
+      final int count = store.countOf(EntryKind.idea);
+      return count == 0 ? '还没有灵感' : '$count 条灵感';
+    }
+    final int total = store.countOf(EntryKind.todo);
+    if (total == 0) return '还没有待办';
+    final int active = store.activeCount();
+    if (active == 0) return '全部完成 · 共 $total 项';
+    return '$active 项未完成 · 共 $total 项';
+  }
+
   /// 卡片高度粗估，只用来把条目分到左右两列：累计更矮的那列拿下一个。
-  static double _estimateCardHeight(Todo todo) {
-    final int titleChars = displayTitle(todo).length;
-    final int previewChars = bodyPreview(todo).length;
+  static double _estimateCardHeight(Entry entry) {
+    final int titleChars = displayTitle(entry).length;
+    final int previewChars = bodyPreview(entry).length;
     final int titleLines = (titleChars / 11).ceil().clamp(1, 3);
     final int previewLines = previewChars == 0
         ? 0
         : (previewChars / 15).ceil().clamp(1, 4);
     return 96 + titleLines * 21 + previewLines * 18;
+  }
+}
+
+class _KindTabs extends StatelessWidget {
+  const _KindTabs({
+    required this.kind,
+    required this.todoCount,
+    required this.ideaCount,
+    required this.onChanged,
+  });
+
+  final EntryKind kind;
+  final int todoCount;
+  final int ideaCount;
+  final ValueChanged<EntryKind> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: _TabButton(
+                icon: Icons.checklist_rounded,
+                label: '待办',
+                count: todoCount == 0 ? null : todoCount,
+                selected: kind == EntryKind.todo,
+                onTap: () => onChanged(EntryKind.todo),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: _TabButton(
+                icon: Icons.lightbulb_outline_rounded,
+                label: '灵感',
+                count: ideaCount == 0 ? null : ideaCount,
+                selected: kind == EntryKind.idea,
+                onTap: () => onChanged(EntryKind.idea),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TabButton extends StatelessWidget {
+  const _TabButton({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final int? count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final Color foreground = selected
+        ? scheme.onSurface
+        : scheme.onSurfaceVariant;
+    final int? badge = count;
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          height: 38,
+          decoration: BoxDecoration(
+            color: selected ? scheme.surface : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: selected
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 5,
+                      offset: const Offset(0, 1),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Icon(
+                icon,
+                size: 17,
+                color: selected ? scheme.primary : foreground,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: foreground,
+                ),
+              ),
+              if (badge != null) ...<Widget>[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
+                  decoration: BoxDecoration(
+                    color: foreground.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$badge',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -189,12 +361,15 @@ class _ModeButton extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({required this.kind});
+
+  final EntryKind kind;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final bool isTodo = kind == EntryKind.todo;
     return Center(
       child: Padding(
         padding: const EdgeInsets.only(bottom: 80),
@@ -202,20 +377,22 @@ class _EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(
-              Icons.dashboard_customize_outlined,
+              isTodo
+                  ? Icons.dashboard_customize_outlined
+                  : Icons.lightbulb_outline_rounded,
               size: 52,
               color: scheme.onSurfaceVariant.withValues(alpha: 0.45),
             ),
             const SizedBox(height: 14),
             Text(
-              '还没有 Todo',
+              isTodo ? '还没有待办' : '还没有灵感',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 6),
             Text(
-              '点右下角「新建」记下第一件事',
+              isTodo ? '点右下角「新建待办」记下第一件事' : '点右下角「记灵感」留下第一个念头',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
