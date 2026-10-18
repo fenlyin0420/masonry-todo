@@ -63,7 +63,8 @@ jobs:
         # 只出手机实际需要的两个 ABI，不出模拟器专用的 x86_64。
         run: |
           flutter build apk --release --split-per-abi \
-            --target-platform android-arm android-arm64
+            --target-platform android-arm \
+            --target-platform android-arm64
 
       - name: 整理产物
         run: |
