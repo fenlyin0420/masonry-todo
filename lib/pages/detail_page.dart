@@ -244,6 +244,9 @@ class _OriginFloor extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
     final String title = todo.title.trim();
     final String body = todo.body.trim();
+    final TextStyle? timeStyle = theme.textTheme.labelSmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
 
     return _FloorShell(
       floor: 1,
@@ -273,15 +276,29 @@ class _OriginFloor extends StatelessWidget {
           ),
         const SizedBox(height: 10),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             _StatusPill(done: todo.done),
-            const Spacer(),
-            Text(
-              todo.done
-                  ? '创建于 ${formatMinute(todo.createdAt)} · 完成于 ${formatMinute(todo.doneAt ?? todo.createdAt)}'
-                  : formatMinute(todo.createdAt),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  Text(
+                    todo.done
+                        ? '创建于 ${formatMinute(todo.createdAt)}'
+                        : formatMinute(todo.createdAt),
+                    textAlign: TextAlign.right,
+                    style: timeStyle,
+                  ),
+                  if (todo.done)
+                    Text(
+                      '完成于 ${formatMinute(todo.doneAt ?? todo.createdAt)}',
+                      textAlign: TextAlign.right,
+                      style: timeStyle,
+                    ),
+                ],
               ),
             ),
           ],

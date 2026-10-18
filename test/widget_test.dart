@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:masonry_todo/main.dart';
 import 'package:masonry_todo/models/todo.dart';
+import 'package:masonry_todo/pages/detail_page.dart';
 import 'package:masonry_todo/store/todo_storage.dart';
 import 'package:masonry_todo/store/todo_store.dart';
+import 'package:masonry_todo/widgets/store_scope.dart';
 
 Future<TodoStore> pumpApp(
   WidgetTester tester, {
@@ -133,6 +135,27 @@ void main() {
 
     expect(find.text('第三条其实可以下周再做'), findsOneWidget);
     expect(store.todos.single.notes.length, 1);
+  });
+
+  testWidgets('窄屏下详情页的时间行不溢出', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    final TodoStore store = TodoStore(MemoryTodoStorage());
+    await store.load();
+    final Todo todo = store.create(title: 'test', body: '特');
+    store.setDone(todo.id, true);
+
+    await tester.pumpWidget(
+      StoreScope(
+        store: store,
+        child: MaterialApp(home: DetailPage(todoId: todo.id)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('列表模式点方框完成，再点取消完成', (WidgetTester tester) async {
