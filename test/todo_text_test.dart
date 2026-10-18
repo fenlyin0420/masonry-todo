@@ -4,11 +4,11 @@ import 'package:masonry_todo/models/todo_text.dart';
 
 void main() {
   Todo todoWith({String title = '', String body = ''}) => Todo(
-        id: 'x',
-        title: title,
-        body: body,
-        createdAt: DateTime(2026, 10, 18, 9, 32),
-      );
+    id: 'x',
+    title: title,
+    body: body,
+    createdAt: DateTime(2026, 10, 18, 9, 32),
+  );
 
   group('firstSentence', () {
     test('取到第一个句末标点', () {

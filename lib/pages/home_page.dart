@@ -5,10 +5,13 @@ import '../models/todo_text.dart';
 import '../nav.dart';
 import '../store/todo_storage.dart';
 import '../store/todo_store.dart';
+import '../update/update_controller.dart';
 import '../widgets/masonry_grid.dart';
 import '../widgets/store_scope.dart';
 import '../widgets/todo_card.dart';
 import '../widgets/todo_row.dart';
+import '../widgets/update_scope.dart';
+import '../widgets/update_watch.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -19,8 +22,9 @@ class HomePage extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final List<Todo> todos = store.todos;
+    final UpdateController? update = UpdateScope.of(context);
 
-    return Scaffold(
+    final Widget page = Scaffold(
       appBar: AppBar(
         titleSpacing: 20,
         title: Column(
@@ -41,10 +45,15 @@ class HomePage extends StatelessWidget {
           ],
         ),
         actions: <Widget>[
-          _ViewModeToggle(
-            mode: store.viewMode,
-            onChanged: store.setViewMode,
-          ),
+          if (update != null) ...<Widget>[
+            IconButton(
+              tooltip: '检查更新',
+              icon: const Icon(Icons.system_update_alt_rounded, size: 20),
+              onPressed: () => update.checkNow(manual: true),
+            ),
+            const SizedBox(width: 4),
+          ],
+          _ViewModeToggle(mode: store.viewMode, onChanged: store.setViewMode),
           const SizedBox(width: 12),
         ],
       ),
@@ -56,31 +65,31 @@ class HomePage extends StatelessWidget {
       body: todos.isEmpty
           ? const _EmptyState()
           : (store.viewMode == ViewMode.grid
-              ? SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-                  child: MasonryTwoColumn<Todo>(
-                    items: todos,
-                    heightEstimator: _estimateCardHeight,
-                    itemBuilder: (BuildContext context, Todo todo) => TodoCard(
-                      key: ValueKey<String>(todo.id),
-                      todo: todo,
+                ? SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                    child: MasonryTwoColumn<Todo>(
+                      items: todos,
+                      heightEstimator: _estimateCardHeight,
+                      itemBuilder: (BuildContext context, Todo todo) =>
+                          TodoCard(key: ValueKey<String>(todo.id), todo: todo),
                     ),
-                  ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-                  itemCount: todos.length,
-                  separatorBuilder: (BuildContext context, int index) =>
-                      const SizedBox(height: 10),
-                  itemBuilder: (BuildContext context, int index) {
-                    final Todo todo = todos[index];
-                    return TodoRow(
-                      key: ValueKey<String>(todo.id),
-                      todo: todo,
-                    );
-                  },
-                )),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                    itemCount: todos.length,
+                    separatorBuilder: (BuildContext context, int index) =>
+                        const SizedBox(height: 10),
+                    itemBuilder: (BuildContext context, int index) {
+                      final Todo todo = todos[index];
+                      return TodoRow(
+                        key: ValueKey<String>(todo.id),
+                        todo: todo,
+                      );
+                    },
+                  )),
     );
+    if (update == null) return page;
+    return UpdateWatch(controller: update, child: page);
   }
 
   /// 卡片高度粗估，只用来把条目分到左右两列：累计更矮的那列拿下一个。

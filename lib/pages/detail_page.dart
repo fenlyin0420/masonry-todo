@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/todo.dart';
 import '../models/todo_text.dart';
+import '../store/note_image_store.dart';
 import '../store/todo_store.dart';
 import '../widgets/store_scope.dart';
 
@@ -19,6 +24,21 @@ class _DetailPageState extends State<DetailPage> {
   final TextEditingController _input = TextEditingController();
   final FocusNode _inputFocus = FocusNode();
   final ScrollController _scroll = ScrollController();
+  final NoteImageStore _images = NoteImageStore();
+  final ImagePicker _picker = ImagePicker();
+
+  /// 待发送的图片（选好后先预览，发送时才落库）。
+  File? _pendingImage;
+
+  @override
+  void initState() {
+    super.initState();
+    // 发送键的可用性跟随输入内容，需要逐字重建
+    _input.addListener(() {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -28,11 +48,58 @@ class _DetailPageState extends State<DetailPage> {
     super.dispose();
   }
 
-  void _send() {
+  Future<void> _pickImage() async {
+    try {
+      final XFile? picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
+      if (picked == null || !mounted) return;
+      setState(() => _pendingImage = File(picked.path));
+    } catch (error) {
+      debugPrint('选择图片失败：$error');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('选择图片失败，可能没有相册权限'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  void _dropPendingImage() {
+    setState(() => _pendingImage = null);
+  }
+
+  Future<void> _send() async {
+    final String text = _input.text.trim();
+    final File? image = _pendingImage;
+    if (text.isEmpty && image == null) return;
     final TodoStore store = StoreScope.of(context);
-    final String text = _input.text;
-    if (text.trim().isEmpty) return;
-    store.addNote(widget.todoId, text);
+    String? imageName;
+    if (image != null) {
+      try {
+        imageName = await _images.store(image);
+      } catch (error) {
+        debugPrint('图片保存失败：$error');
+        // 纯图片记录存不了图就不能发，保留预览让用户换一张。
+        if (text.isEmpty) {
+          if (!mounted) return;
+          _snack('图片太大或无法保存，换一张再发');
+          return;
+        }
+        if (!mounted) return;
+        _snack('图片保存失败，这条记录只发了文字');
+      }
+    }
+    final Note? note = store.addNote(widget.todoId, text, image: imageName);
+    if (note == null && imageName != null) {
+      // todo 已不存在：清掉刚落盘的图片，别留孤儿文件。
+      unawaited(_images.deleteFile(imageName));
+    }
+    if (mounted) setState(() => _pendingImage = null);
     _input.clear();
     _inputFocus.requestFocus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -51,9 +118,7 @@ class _DetailPageState extends State<DetailPage> {
       context: context,
       builder: (BuildContext context) => AlertDialog(
         title: const Text('删除这条 Todo？'),
-        content: Text(
-          '「${displayTitle(todo)}」以及它的全部记录都会被删掉，无法恢复。',
-        ),
+        content: Text('「${displayTitle(todo)}」以及它的全部记录都会被删掉，无法恢复。'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -68,8 +133,33 @@ class _DetailPageState extends State<DetailPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    final List<String> imageNames = todo.notes
+        .map((note) => note.image)
+        .whereType<String>()
+        .toList();
     StoreScope.of(context).delete(todo.id);
     Navigator.of(context).pop();
+    // 先出页面再清图片，避免等待期间闪一帧空态。
+    unawaited(_cleanupImages(imageNames));
+  }
+
+  Future<void> _cleanupImages(List<String> names) async {
+    for (final name in names) {
+      try {
+        await _images.deleteFile(name);
+      } catch (error) {
+        debugPrint('清理图片失败：$error');
+      }
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      );
   }
 
   @override
@@ -119,7 +209,11 @@ class _DetailPageState extends State<DetailPage> {
                     ),
                   ),
                 for (int i = 0; i < todo.notes.length; i++)
-                  _NoteFloor(floor: i + 2, note: todo.notes[i]),
+                  _NoteFloor(
+                    floor: i + 2,
+                    note: todo.notes[i],
+                    images: _images,
+                  ),
               ],
             ),
           ),
@@ -127,6 +221,10 @@ class _DetailPageState extends State<DetailPage> {
             controller: _input,
             focusNode: _inputFocus,
             onSend: _send,
+            pendingImage: _pendingImage,
+            canSend: _input.text.trim().isNotEmpty || _pendingImage != null,
+            onPickImage: _pickImage,
+            onDropPendingImage: _dropPendingImage,
           ),
         ],
       ),
@@ -210,10 +308,8 @@ class _StatusPill extends StatelessWidget {
       ),
       child: Text(
         done ? '已完成' : '进行中',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
+        style: Theme.of(context).textTheme.labelSmall
+            ?.copyWith(color: color, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -233,9 +329,7 @@ class _ThreadDivider extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: Divider(color: scheme.outlineVariant, height: 1),
-          ),
+          Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Text(
@@ -245,9 +339,7 @@ class _ThreadDivider extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(
-            child: Divider(color: scheme.outlineVariant, height: 1),
-          ),
+          Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
         ],
       ),
     );
@@ -255,33 +347,184 @@ class _ThreadDivider extends StatelessWidget {
 }
 
 class _NoteFloor extends StatelessWidget {
-  const _NoteFloor({required this.floor, required this.note});
+  const _NoteFloor({
+    required this.floor,
+    required this.note,
+    required this.images,
+  });
 
   final int floor;
   final Note note;
+  final NoteImageStore images;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
     return _FloorShell(
       floor: floor,
       children: <Widget>[
-        Text(
-          note.text,
-          style: theme.textTheme.bodyMedium?.copyWith(height: 1.6),
-        ),
+        if (note.text.isNotEmpty)
+          Text(
+            note.text,
+            style: theme.textTheme.bodyMedium?.copyWith(height: 1.6),
+          ),
+        if (note.image != null)
+          Padding(
+            padding: EdgeInsets.only(top: note.text.isEmpty ? 0 : 8),
+            child: _NoteImage(name: note.image!, images: images),
+          ),
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerRight,
           child: Text(
             formatMinute(note.createdAt),
             style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 楼层里的图片：限宽显示，点按放大。动图（GIF）由 Image.file 原生播放。
+class _NoteImage extends StatefulWidget {
+  const _NoteImage({required this.name, required this.images});
+
+  final String name;
+  final NoteImageStore images;
+
+  @override
+  State<_NoteImage> createState() => _NoteImageState();
+}
+
+class _NoteImageState extends State<_NoteImage> {
+  // fileFor 走 platform channel，挂在 build 里每次重建都会重查、
+  // 让 FutureBuilder 回到 waiting 导致图片闪烁；这里缓存一次。
+  late Future<File> _file;
+
+  @override
+  void initState() {
+    super.initState();
+    _file = widget.images.fileFor(widget.name);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NoteImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.name != widget.name) {
+      _file = widget.images.fileFor(widget.name);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return FutureBuilder<File>(
+      future: _file,
+      builder: (BuildContext context, AsyncSnapshot<File> snapshot) {
+        final File? file = snapshot.data;
+        if (file == null || !file.existsSync()) {
+          return Container(
+            width: 120,
+            height: 72,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: scheme.onSurfaceVariant,
+            ),
+          );
+        }
+        return GestureDetector(
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (BuildContext context) => _ImagePreviewPage(file: file),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
+              child: Image.file(
+                file,
+                errorBuilder: (
+                  BuildContext context,
+                  Object error,
+                  StackTrace? stackTrace,
+                ) => _brokenImage(scheme),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _brokenImage(ColorScheme scheme) {
+    return Container(
+      width: 120,
+      height: 72,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      alignment: Alignment.center,
+      child: Icon(Icons.broken_image_outlined, color: scheme.onSurfaceVariant),
+    );
+  }
+}
+
+class _ImagePreviewPage extends StatelessWidget {
+  const _ImagePreviewPage({required this.file});
+
+  final File file;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: <Widget>[
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => Navigator.of(context).pop(),
+            child: Center(
+              child: Image.file(
+                file,
+                fit: BoxFit.contain,
+                errorBuilder:
+                    (
+                      BuildContext context,
+                      Object error,
+                      StackTrace? stackTrace,
+                    ) => const Icon(
+                      Icons.broken_image_outlined,
+                      color: Colors.white54,
+                      size: 48,
+                    ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: MediaQuery.of(context).padding.top,
+            right: 8,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.35),
+              shape: const CircleBorder(),
+              child: IconButton(
+                tooltip: '关闭',
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -335,11 +578,19 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.onSend,
+    required this.pendingImage,
+    required this.canSend,
+    required this.onPickImage,
+    required this.onDropPendingImage,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final VoidCallback onSend;
+  final File? pendingImage;
+  final bool canSend;
+  final VoidCallback onPickImage;
+  final VoidCallback onDropPendingImage;
 
   @override
   Widget build(BuildContext context) {
@@ -355,28 +606,74 @@ class _Composer extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  minLines: 1,
-                  maxLines: 4,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  decoration: const InputDecoration(
-                    hintText: '写下你的想法、心得…',
-                    isDense: true,
+              if (pendingImage != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.file(
+                          pendingImage!,
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.cover,
+                          errorBuilder: (
+                            BuildContext context,
+                            Object error,
+                            StackTrace? stackTrace,
+                          ) => const Icon(Icons.broken_image_outlined),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '发送时会附上这张图（动图保留动画）',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '移除图片',
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: onDropPendingImage,
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: onSend,
-                tooltip: '发表',
-                icon: const Icon(Icons.arrow_upward_rounded, size: 20),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  IconButton(
+                    tooltip: '添加图片',
+                    icon: const Icon(Icons.add_photo_alternate_rounded),
+                    onPressed: onPickImage,
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      minLines: 1,
+                      maxLines: 4,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
+                      decoration: const InputDecoration(
+                        hintText: '写下你的想法、心得…',
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton.filled(
+                    onPressed: canSend ? onSend : null,
+                    tooltip: '发表',
+                    icon: const Icon(Icons.arrow_upward_rounded, size: 20),
+                  ),
+                ],
               ),
             ],
           ),

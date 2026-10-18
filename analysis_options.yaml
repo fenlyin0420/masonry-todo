@@ -28,7 +28,9 @@ linter:
   # producing the lint.
   rules:
     # avoid_print: false  # Uncomment to disable the `avoid_print` rule
-    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # prefer_single_quotes: true  # 可取消注释启用
+    # 私有字段配公开参数时无法用 initializing formal，关掉以免 CI 门禁误报。
+    prefer_initializing_formals: false
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

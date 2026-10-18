@@ -59,20 +59,62 @@ jobs:
             echo "未配置签名 secret，退回 debug 签名"
           fi
 
-      - name: 构建 APK
-        run: flutter build apk --release
+      - name: 构建 APK（按架构拆分）
+        # 只出手机实际需要的两个 ABI，不出模拟器专用的 x86_64。
+        run: |
+          flutter build apk --release --split-per-abi \
+            --target-platform android-arm android-arm64
+
+      - name: 整理产物
+        run: |
+          cd build/app/outputs/flutter-apk
+          for f in app-*-release.apk; do
+            [ -e "$f" ] || continue
+            abi="${f#app-}"
+            abi="${abi%-release.apk}"
+            cp "$f" "masonry-todo-$abi.apk"
+          done
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: masonry-todo-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/masonry-todo-*.apk
           if-no-files-found: error
+
+      - name: 准备发布说明
+        id: notes
+        run: |
+          if [ -f RELEASE_NOTES.md ]; then
+            cp RELEASE_NOTES.md release-notes.md
+            echo "用 RELEASE_NOTES.md"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+            {
+              echo "Masonry Todo **${VERSION}**"
+              echo ""
+              echo "**Assets**"
+              echo ""
+              for apk in build/app/outputs/flutter-apk/masonry-todo-*.apk; do
+                [ -e "$apk" ] || continue
+                echo "- \`$(basename "$apk")\` — 按设备架构拆分，选与手机匹配的那个"
+              done
+            } > release-notes.md
+            echo "未提供 RELEASE_NOTES.md，用自动生成的说明"
+          fi
 
       - name: 发布 Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/app/outputs/flutter-apk/app-release.apk
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          DIR="build/app/outputs/flutter-apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DIR"/masonry-todo-*.apk --clobber
+          else
+            gh release create "$TAG" \
+              --title "Masonry Todo ${TAG#v}" \
+              --notes-file release-notes.md \
+              "$DIR"/masonry-todo-*.apk
+          fi

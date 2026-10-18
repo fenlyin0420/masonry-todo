@@ -78,8 +78,9 @@ class TodoCard extends StatelessWidget {
                           Text(
                             formatMinute(todo.createdAt),
                             style: theme.textTheme.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant
-                                  .withValues(alpha: 0.85),
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: 0.85,
+                              ),
                             ),
                           ),
                           const Spacer(),
@@ -87,15 +88,17 @@ class TodoCard extends StatelessWidget {
                             Icon(
                               Icons.mode_comment_outlined,
                               size: 12,
-                              color: scheme.onSurfaceVariant
-                                  .withValues(alpha: 0.85),
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: 0.85,
+                              ),
                             ),
                             const SizedBox(width: 3),
                             Text(
                               '${todo.notes.length}',
                               style: theme.textTheme.labelSmall?.copyWith(
-                                color: scheme.onSurfaceVariant
-                                    .withValues(alpha: 0.85),
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: 0.85,
+                                ),
                               ),
                             ),
                           ],
@@ -133,10 +136,7 @@ class _HoldProgress extends StatelessWidget {
         shape: BoxShape.circle,
         color: scheme.surface.withValues(alpha: 0.92),
         boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 8),
         ],
       ),
       child: SizedBox(

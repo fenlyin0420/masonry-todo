@@ -33,10 +33,10 @@ class AppSnapshot {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'version': 1,
-        'viewMode': viewMode == ViewMode.list ? 'list' : 'grid',
-        'todos': todos.map((todo) => todo.toJson()).toList(),
-      };
+    'version': 1,
+    'viewMode': viewMode == ViewMode.list ? 'list' : 'grid',
+    'todos': todos.map((todo) => todo.toJson()).toList(),
+  };
 }
 
 abstract class TodoStorage {
@@ -47,20 +47,20 @@ abstract class TodoStorage {
 /// JSON 文件存储：写入临时文件再 rename，避免半截文件。
 class FileTodoStorage implements TodoStorage {
   FileTodoStorage({Future<Directory> Function()? directoryProvider})
-      : _directoryProvider =
-            directoryProvider ?? getApplicationDocumentsDirectory;
+    : _directoryProvider =
+          directoryProvider ?? getApplicationDocumentsDirectory;
 
   final Future<Directory> Function() _directoryProvider;
   Future<File>? _file;
 
   Future<File> _resolve() => _file ??= () async {
-        final base = await _directoryProvider();
-        final dir = Directory('${base.path}/masonry_todo');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        return File('${dir.path}/todos.json');
-      }();
+    final base = await _directoryProvider();
+    final dir = Directory('${base.path}/masonry_todo');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return File('${dir.path}/todos.json');
+  }();
 
   @override
   Future<AppSnapshot> load() async {

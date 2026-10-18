@@ -68,8 +68,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(todo.done, isFalse);
 
-    final TestGesture gesture =
-        await tester.startGesture(tester.getCenter(find.text('长按完成我')));
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(find.text('长按完成我')),
+    );
     await tester.pump(const Duration(milliseconds: 1500));
     expect(todo.done, isFalse, reason: '不到 3 秒不应该完成');
     // 计时从第一帧开始，pump 推进后要补足 3 秒
@@ -103,8 +104,9 @@ void main() {
     final todo = store.create(title: '别完成我');
     await tester.pumpAndSettle();
 
-    final TestGesture gesture =
-        await tester.startGesture(tester.getCenter(find.text('别完成我')));
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(find.text('别完成我')),
+    );
     await tester.pump(const Duration(milliseconds: 600));
     await gesture.up();
     await tester.pumpAndSettle();
@@ -124,6 +126,8 @@ void main() {
     expect(find.text('还没有记录，写下你对这个任务的想法'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField).last, '第三条其实可以下周再做');
+    // 发送键随输入内容重建，点之前先让重建落帧
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('发表'));
     await tester.pumpAndSettle();
 

@@ -74,10 +74,12 @@ class TodoRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
-                          decoration:
-                              todo.done ? TextDecoration.lineThrough : null,
-                          decorationColor:
-                              scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                          decoration: todo.done
+                              ? TextDecoration.lineThrough
+                              : null,
+                          decorationColor: scheme.onSurfaceVariant.withValues(
+                            alpha: 0.7,
+                          ),
                           color: scheme.onSurface,
                         ),
                       ),
@@ -100,8 +102,9 @@ class TodoRow extends StatelessWidget {
                           Text(
                             formatMinute(todo.createdAt),
                             style: theme.textTheme.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant
-                                  .withValues(alpha: 0.85),
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: 0.85,
+                              ),
                             ),
                           ),
                           if (todo.notes.isNotEmpty) ...<Widget>[
@@ -109,15 +112,17 @@ class TodoRow extends StatelessWidget {
                             Icon(
                               Icons.mode_comment_outlined,
                               size: 12,
-                              color: scheme.onSurfaceVariant
-                                  .withValues(alpha: 0.85),
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: 0.85,
+                              ),
                             ),
                             const SizedBox(width: 3),
                             Text(
                               '${todo.notes.length}',
                               style: theme.textTheme.labelSmall?.copyWith(
-                                color: scheme.onSurfaceVariant
-                                    .withValues(alpha: 0.85),
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: 0.85,
+                                ),
                               ),
                             ),
                           ],

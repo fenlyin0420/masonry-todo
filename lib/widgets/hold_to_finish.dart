@@ -57,11 +57,11 @@ class HoldToFinishState extends State<HoldToFinish>
   }
 
   void _handleDown(PointerDownEvent event) {
-    if (!widget.enabled || _pointer != null) return;
+    if (_pointer != null) return;
     _pointer = event.pointer;
     _origin = event.position;
     _moved = false;
-    _controller.forward(from: 0);
+    if (widget.enabled) _controller.forward(from: 0);
   }
 
   void _handleMove(PointerMoveEvent event) {

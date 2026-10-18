@@ -2,11 +2,7 @@ import 'package:flutter/material.dart';
 
 /// 列表模式前面的方框：点一下切换完成状态。
 class CheckSquare extends StatelessWidget {
-  const CheckSquare({
-    super.key,
-    required this.checked,
-    required this.onTap,
-  });
+  const CheckSquare({super.key, required this.checked, required this.onTap});
 
   final bool checked;
   final VoidCallback onTap;

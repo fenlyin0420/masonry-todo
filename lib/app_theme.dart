@@ -24,16 +24,14 @@ Color accentFor(String id) {
 Color cardColorFor(BuildContext context, String id) {
   final scheme = Theme.of(context).colorScheme;
   return Color.alphaBlend(
-    accentFor(id).withValues(alpha: scheme.brightness == Brightness.dark ? 0.14 : 0.10),
+    accentFor(id)
+        .withValues(alpha: scheme.brightness == Brightness.dark ? 0.14 : 0.10),
     scheme.surface,
   );
 }
 
 ThemeData buildAppTheme(Brightness brightness) {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: _seed,
-    brightness: brightness,
-  );
+  final scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: brightness);
   final base = ThemeData(colorScheme: scheme);
   return base.copyWith(
     scaffoldBackgroundColor: brightness == Brightness.light
@@ -53,7 +51,9 @@ ThemeData buildAppTheme(Brightness brightness) {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-      hintStyle: TextStyle(color: scheme.onSurfaceVariant.withValues(alpha: 0.8)),
+      hintStyle: TextStyle(
+        color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),

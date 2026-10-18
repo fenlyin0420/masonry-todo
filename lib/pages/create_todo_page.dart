@@ -60,9 +60,7 @@ class _CreateTodoPageState extends State<CreateTodoPage> {
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
-              decoration: const InputDecoration(
-                hintText: '标题（可留空，自动取正文第一句）',
-              ),
+              decoration: const InputDecoration(hintText: '标题（可留空，自动取正文第一句）'),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -71,9 +69,7 @@ class _CreateTodoPageState extends State<CreateTodoPage> {
               maxLines: 14,
               keyboardType: TextInputType.multiline,
               onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                hintText: '正文：这件事具体要做什么',
-              ),
+              decoration: const InputDecoration(hintText: '正文：这件事具体要做什么'),
             ),
             const SizedBox(height: 16),
             Row(

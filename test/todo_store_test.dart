@@ -36,7 +36,10 @@ void main() {
     final Todo fresh = store.create(title: '新的', now: DateTime(2026, 10, 2));
     store.setDone(fresh.id, true, now: DateTime(2026, 10, 3));
 
-    expect(store.todos.map((todo) => todo.title).toList(), <String>['旧的', '新的']);
+    expect(store.todos.map((todo) => todo.title).toList(), <String>[
+      '旧的',
+      '新的',
+    ]);
     expect(store.activeCount, 1);
 
     store.setDone(fresh.id, false);
@@ -65,9 +68,13 @@ void main() {
   });
 
   test('JSON 文件存储可跨实例读回，坏文件会被备份', () async {
-    final Directory dir = await Directory.systemTemp.createTemp('masonry_todo_test');
+    final Directory dir = await Directory.systemTemp.createTemp(
+      'masonry_todo_test',
+    );
     addTearDown(() => dir.delete(recursive: true));
-    final FileTodoStorage storage = FileTodoStorage(directoryProvider: () async => dir);
+    final FileTodoStorage storage = FileTodoStorage(
+      directoryProvider: () async => dir,
+    );
 
     final TodoStore store = TodoStore(storage);
     await store.load();

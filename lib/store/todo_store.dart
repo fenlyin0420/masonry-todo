@@ -81,15 +81,16 @@ class TodoStore extends ChangeNotifier {
     _persistAndNotify();
   }
 
-  Note? addNote(String todoId, String text, {DateTime? now}) {
+  Note? addNote(String todoId, String text, {String? image, DateTime? now}) {
     final content = text.trim();
     final todo = byId(todoId);
-    if (todo == null || content.isEmpty) return null;
+    if (todo == null || (content.isEmpty && image == null)) return null;
     final created = now ?? DateTime.now();
     final note = Note(
       id: _newId(created),
       text: content,
       createdAt: created,
+      image: image,
     );
     todo.notes.add(note);
     _persistAndNotify();
