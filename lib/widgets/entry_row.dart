@@ -151,6 +151,8 @@ class EntryRow extends StatelessWidget {
       ..showSnackBar(
         SnackBar(
           content: Text('「$title」已完成'),
+          // 带 action 的 SnackBar 新版默认 persist，会一直挂在屏幕上。
+          persist: false,
           duration: const Duration(seconds: 3),
           behavior: SnackBarBehavior.floating,
           action: SnackBarAction(

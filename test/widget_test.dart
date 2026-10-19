@@ -211,10 +211,11 @@ void main() {
     expect(store.entries.single.notes.length, 1);
   });
 
-  testWidgets('评论楼层过长时固定高度，点「查看详情」展开', (WidgetTester tester) async {
+  testWidgets('评论楼层过长时按整行折叠，点「查看详情」展开', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '长评论');
-    store.addNote(entry.id, '这是一条很长的评论。' * 60);
+    final String longText = '这是一条很长的评论。' * 60;
+    store.addNote(entry.id, longText);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('长评论'));
@@ -222,19 +223,30 @@ void main() {
 
     expect(find.text('查看详情'), findsOneWidget);
     expect(find.text('收起'), findsNothing);
-    final Finder collapsedBox = find.byType(SingleChildScrollView);
-    expect(tester.getSize(collapsedBox).height, 120);
+    final Finder noteText = find.text(longText);
+    int? collapsedLines = tester.widget<Text>(noteText).maxLines;
+    expect(collapsedLines, isNotNull);
+    expect(collapsedLines, greaterThan(0));
+    expect(tester.widget<Text>(noteText).overflow, TextOverflow.clip);
+    // 折叠高度不超过阈值，且正好是整行高度：不会出现被削掉一半的行。
+    final double collapsedHeight = tester.getSize(noteText).height;
+    final double lineHeight = collapsedHeight / collapsedLines!;
+    expect(collapsedHeight, lessThanOrEqualTo(120));
+    expect(collapsedHeight, moreOrLessEquals(lineHeight * collapsedLines));
 
     await tester.tap(find.text('查看详情'));
     await tester.pumpAndSettle();
     expect(find.text('收起'), findsOneWidget);
     expect(find.text('查看详情'), findsNothing);
-    expect(collapsedBox, findsNothing);
+    expect(tester.widget<Text>(noteText).maxLines, isNull);
+    expect(tester.getSize(noteText).height, greaterThan(120));
 
     await tester.tap(find.text('收起'));
     await tester.pumpAndSettle();
     expect(find.text('查看详情'), findsOneWidget);
-    expect(tester.getSize(collapsedBox).height, 120);
+    collapsedLines = tester.widget<Text>(noteText).maxLines;
+    expect(collapsedLines, isNotNull);
+    expect(tester.getSize(noteText).height, lessThanOrEqualTo(120));
   });
 
   testWidgets('短评论与主楼都不给折叠开关', (WidgetTester tester) async {
@@ -367,6 +379,22 @@ void main() {
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
     expect(entry.done, isFalse);
+  });
+
+  testWidgets('撤销条幅到时会自己消失，不会赖在屏幕上', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    store.create(title: '完成就该收条幅');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('列表'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('标记为已完成'));
+    await tester.pumpAndSettle();
+    expect(find.text('撤销'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    expect(find.text('撤销'), findsNothing);
   });
 
   testWidgets('删除只能从详情页走，且需要确认', (WidgetTester tester) async {

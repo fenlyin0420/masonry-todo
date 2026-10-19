@@ -329,6 +329,7 @@ class _OriginFloor extends StatelessWidget {
 }
 
 /// 评论楼层正文的折叠高度：超过这个高度的楼层点「查看详情」展开。
+/// 折叠按整行算，不会把中间一行拦腰截断。
 const double _noteCollapsedHeight = 120;
 
 /// 折叠开关：过长的评论靠它展开 / 收起。
@@ -368,7 +369,7 @@ class _ExpandToggle extends StatelessWidget {
   }
 }
 
-/// 评论楼层的正文：超过 [_noteCollapsedHeight] 就截断，点开关展开全文。
+/// 评论楼层的正文：超过 [_noteCollapsedHeight] 就按整行截断，点开关展开全文。
 class _CollapsibleText extends StatefulWidget {
   const _CollapsibleText({required this.text, required this.style});
 
@@ -386,34 +387,34 @@ class _CollapsibleTextState extends State<_CollapsibleText> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        // 先按渲染宽度量一遍高度，判断要不要折叠，省得靠首帧回调测量闪一下。
-        final bool collapsible =
-            constraints.maxWidth.isFinite &&
-            _textHeight(
-                  widget.text,
-                  widget.style,
-                  constraints.maxWidth,
-                  MediaQuery.textScalerOf(context),
-                ) >
-                _noteCollapsedHeight;
-        final Widget text = Text(widget.text, style: widget.style);
-        if (!collapsible) return text;
+        // 先按渲染宽度排版一遍拿到每行高度，判断要不要折叠，省得靠首帧回调测量闪一下。
+        if (!constraints.maxWidth.isFinite) {
+          return Text(widget.text, style: widget.style);
+        }
+        final List<LineMetrics> lines = _textLines(
+          widget.text,
+          widget.style,
+          constraints.maxWidth,
+          MediaQuery.textScalerOf(context),
+        );
+        final int visibleLines = _collapsedLineCount(lines);
+        if (visibleLines >= lines.length) {
+          return Text(widget.text, style: widget.style);
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (_expanded)
-              text
+              Text(widget.text, style: widget.style)
             else
-              SizedBox(
-                height: _noteCollapsedHeight,
-                child: ClipRect(
-                  child: SingleChildScrollView(
-                    physics: const NeverScrollableScrollPhysics(),
-                    child: text,
-                  ),
-                ),
+              // 按整行裁剪：用固定高度硬裁会把最后一行切成上下两半。
+              Text(
+                widget.text,
+                style: widget.style,
+                maxLines: visibleLines,
+                overflow: TextOverflow.clip,
               ),
             const SizedBox(height: 2),
             _ExpandToggle(
@@ -427,8 +428,8 @@ class _CollapsibleTextState extends State<_CollapsibleText> {
   }
 }
 
-/// 按给定宽度估算文本高度（与 Text 的排版一致）。
-double _textHeight(
+/// 按给定宽度排版一遍，取每一行的高度（与 Text 的排版一致）。
+List<LineMetrics> _textLines(
   String text,
   TextStyle? style,
   double width,
@@ -439,7 +440,19 @@ double _textHeight(
     textDirection: TextDirection.ltr,
     textScaler: textScaler,
   )..layout(maxWidth: width);
-  return painter.height;
+  return painter.computeLineMetrics();
+}
+
+/// 折叠时显示几整行：不超出 [_noteCollapsedHeight] 的最大整行数。
+int _collapsedLineCount(List<LineMetrics> lines) {
+  double used = 0;
+  int count = 0;
+  for (final LineMetrics line in lines) {
+    if (used + line.height > _noteCollapsedHeight + 0.5) break;
+    used += line.height;
+    count++;
+  }
+  return count < 1 ? 1 : count;
 }
 
 class _StatusPill extends StatelessWidget {
@@ -546,8 +559,8 @@ class _NoteFloor extends StatelessWidget {
 }
 
 /// 缩略图上限：评论区的图片按比例缩到这个框里，别再占满一整行。
-const double _thumbMaxWidth = 100;
-const double _thumbMaxHeight = 132;
+const double _thumbMaxWidth = 140;
+const double _thumbMaxHeight = 180;
 
 /// 楼层里的图片：缩成小图靠左显示，点按放大。动图（GIF）由 Image.file 原生播放。
 class _NoteImage extends StatefulWidget {
@@ -592,12 +605,7 @@ class _NoteImageState extends State<_NoteImage> {
         return Align(
           alignment: Alignment.centerLeft,
           child: GestureDetector(
-            onTap: () => Navigator.of(context).push<void>(
-              MaterialPageRoute<void>(
-                builder: (BuildContext context) =>
-                    _ImagePreviewPage(file: file),
-              ),
-            ),
+            onTap: () => _openPreview(file),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: ConstrainedBox(
@@ -625,7 +633,7 @@ class _NoteImageState extends State<_NoteImage> {
   Widget _brokenImage(ColorScheme scheme) {
     return Container(
       width: _thumbMaxWidth,
-      height: 74,
+      height: 100,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
@@ -633,6 +641,21 @@ class _NoteImageState extends State<_NoteImage> {
       alignment: Alignment.center,
       child: Icon(Icons.broken_image_outlined, color: scheme.onSurfaceVariant),
     );
+  }
+
+  Future<void> _openPreview(File file) async {
+    // 预览时先交还焦点：返回时焦点会恢复给输入框，键盘就自己弹出来了。
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => _ImagePreviewPage(file: file),
+      ),
+    );
+    if (!mounted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    });
   }
 }
 
