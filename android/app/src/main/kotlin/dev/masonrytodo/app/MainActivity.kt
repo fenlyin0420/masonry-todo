@@ -69,20 +69,26 @@ class MainActivity : FlutterActivity() {
                             result.error("NOT_FOUND", "apk file missing", null)
                             return@setMethodCallHandler
                         }
-                        val uri =
-                            FileProvider.getUriForFile(
-                                this,
-                                "$packageName.updates",
-                                file,
+                        try {
+                            val uri =
+                                FileProvider.getUriForFile(
+                                    this,
+                                    "$packageName.updates",
+                                    file,
+                                )
+                            startActivity(
+                                Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(
+                                        uri,
+                                        "application/vnd.android.package-archive",
+                                    ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
                             )
-                        startActivity(
-                            Intent(Intent.ACTION_VIEW)
-                                .setDataAndType(
-                                    uri,
-                                    "application/vnd.android.package-archive",
-                                ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                        )
-                        result.success(null)
+                            result.success(null)
+                        } catch (e: Exception) {
+                            // 权限未给、安装器缺失或 FileProvider 配置不对：
+                            // 把原因交给 Dart 侧提示，别让用户只看到没反应。
+                            result.error("INSTALL_FAILED", e.message ?: e.toString(), null)
+                        }
                     }
 
                     else -> {

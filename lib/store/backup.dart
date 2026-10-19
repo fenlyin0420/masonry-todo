@@ -24,21 +24,42 @@ class BackupBundle {
   int get imageCount => images.length;
 }
 
+/// 导出结果：备份文本 + 打包进去多少张图 + 哪些图在原机已经找不到。
+/// [missingImages] 非空就要告诉用户，不然他会以为整包都带上了。
+class BackupExport {
+  const BackupExport({
+    required this.text,
+    required this.imageCount,
+    this.missingImages = const <String>[],
+  });
+
+  final String text;
+  final int imageCount;
+  final List<String> missingImages;
+}
+
 /// 把快照和它引用到的图片编码成备份文本。
-/// 引用到的图片文件不在磁盘上就跳过，不值得为一张丢了的图让整次导出失败。
-Future<String> encodeBackup(
+/// 引用到的图片文件不在磁盘上就跳过，不值得为一张丢了的图让整次导出失败；
+/// 但会把名字记在 [BackupExport.missingImages] 里，由界面提示用户。
+Future<BackupExport> encodeBackup(
   AppSnapshot snapshot,
   NoteImageStore images, {
   String? appVersion,
   DateTime? now,
 }) async {
   final Map<String, String> encoded = <String, String>{};
+  final List<String> missing = <String>[];
   for (final Entry entry in snapshot.entries) {
     for (final Note note in entry.notes) {
       final String? name = note.image;
-      if (name == null || encoded.containsKey(name)) continue;
+      if (name == null || encoded.containsKey(name) || missing.contains(name)) {
+        continue;
+      }
       final Uint8List? bytes = await images.read(name);
-      if (bytes == null) continue;
+      if (bytes == null) {
+        missing.add(name);
+        continue;
+      }
       encoded[name] = base64Encode(bytes);
     }
   }
@@ -50,7 +71,11 @@ Future<String> encodeBackup(
     'snapshot': snapshot.toJson(),
     'images': encoded,
   };
-  return const JsonEncoder.withIndent('  ').convert(json);
+  return BackupExport(
+    text: const JsonEncoder.withIndent('  ').convert(json),
+    imageCount: encoded.length,
+    missingImages: missing,
+  );
 }
 
 /// 解析备份文本。认两种：本应用导出的备份，以及直接拷来的 `todos.json`

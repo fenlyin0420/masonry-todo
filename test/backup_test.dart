@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:masonry_todo/models/entry.dart';
 import 'package:masonry_todo/store/backup.dart';
 import 'package:masonry_todo/store/entry_storage.dart';
@@ -41,29 +42,83 @@ void main() {
     final NoteImageStore images = buildImages();
     await images.restore('n1.jpg', Uint8List.fromList(<int>[7, 8, 9]));
 
-    final String text = await encodeBackup(
+    final BackupExport backup = await encodeBackup(
       AppSnapshot(entries: <Entry>[entryWithImage()]),
       images,
       appVersion: '1.3.1+6',
       now: DateTime(2026, 10, 18, 9, 30),
     );
-    expect(text, contains('"format": "masonry_todo.backup"'));
+    expect(backup.text, contains('"format": "masonry_todo.backup"'));
+    expect(backup.imageCount, 1);
+    expect(backup.missingImages, isEmpty);
 
-    final BackupBundle bundle = decodeBackup(text);
+    final BackupBundle bundle = decodeBackup(backup.text);
     expect(bundle.entryCount, 1);
     expect(bundle.imageCount, 1);
     expect(bundle.snapshot.entries.single.notes.single.image, 'n1.jpg');
     expect(bundle.images['n1.jpg'], orderedEquals(<int>[7, 8, 9]));
   });
 
-  test('图片文件丢了也能导出，只是这张图不进备份', () async {
-    final String text = await encodeBackup(
+  test('图片文件丢了也能导出，但要报出没进备份的那几张', () async {
+    final BackupExport backup = await encodeBackup(
       AppSnapshot(entries: <Entry>[entryWithImage()]),
       buildImages(),
     );
-    final BackupBundle bundle = decodeBackup(text);
+    final BackupBundle bundle = decodeBackup(backup.text);
     expect(bundle.snapshot.entries.single.notes.single.image, 'n1.jpg');
     expect(bundle.images, isEmpty);
+    expect(backup.imageCount, 0);
+    expect(backup.missingImages, <String>['n1.jpg']);
+  });
+
+  test('真实流程：压缩后的图能整包搬到新机器', () async {
+    // 走一遍生产路径：原图 → NoteImageStore.store() 压缩落盘 → 导出 → 导入。
+    final Directory source = await Directory.systemTemp.createTemp('photo');
+    addTearDown(() => source.delete(recursive: true));
+    final File original = File('${source.path}/photo.png');
+    await original.writeAsBytes(
+      img.encodePng(img.Image(width: 40, height: 30)..clear(img.ColorRgb8(10, 120, 200))),
+      flush: true,
+    );
+
+    final NoteImageStore phone = NoteImageStore(
+      directoryProvider: () async => root,
+    );
+    final String stored = await phone.store(original);
+    final Uint8List storedBytes = (await phone.read(stored))!;
+
+    final Entry entry = Entry(
+      id: 'e1',
+      title: '带图',
+      createdAt: DateTime(2026, 10, 18),
+      notes: <Note>[
+        Note(
+          id: 'n1',
+          text: '看图',
+          image: stored,
+          createdAt: DateTime(2026, 10, 18, 9, 5),
+        ),
+      ],
+    );
+    final BackupExport backup = await encodeBackup(
+      AppSnapshot(entries: <Entry>[entry]),
+      phone,
+    );
+    expect(backup.imageCount, 1);
+
+    // 新机器：空目录，只有备份文件。
+    final Directory fresh = await Directory.systemTemp.createTemp('fresh');
+    addTearDown(() => fresh.delete(recursive: true));
+    final NoteImageStore other = NoteImageStore(
+      directoryProvider: () async => fresh,
+    );
+    final BackupBundle bundle = decodeBackup(backup.text);
+    for (final MapEntry<String, Uint8List> image in bundle.images.entries) {
+      expect(await other.restore(image.key, image.value), isTrue);
+    }
+
+    expect(await other.exists(stored), isTrue);
+    expect(await other.read(stored), orderedEquals(storedBytes));
   });
 
   test('直接拷来的 todos.json 也能导入', () {

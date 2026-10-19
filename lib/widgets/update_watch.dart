@@ -58,7 +58,11 @@ class _UpdateWatchState extends State<UpdateWatch> {
       case UpdateStateKind.failed:
         _closeDownloadDialog();
         if (controller.userInitiated) {
-          _snack(controller.state.data.toString());
+          // 下载失败时给一个重试入口，重试会从已下到的位置续传。
+          _snack(
+            controller.state.data.toString(),
+            retry: controller.canRetryDownload,
+          );
         }
       case UpdateStateKind.ready:
         _closeDownloadDialog();
@@ -220,11 +224,21 @@ class _UpdateWatchState extends State<UpdateWatch> {
     );
   }
 
-  void _snack(String message) {
+  void _snack(String message, {bool retry = false}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: retry ? 8 : 4),
+          action: retry
+              ? SnackBarAction(
+                  label: '重试',
+                  onPressed: () => widget.controller.retryDownload(),
+                )
+              : null,
+        ),
       );
   }
 }

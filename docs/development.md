@@ -133,10 +133,26 @@ class Note {
 ### 备份
 
 - 导出：`encodeBackup` 把 `AppSnapshot` 连同它引用到的图片（base64）编成单个 `.json`，
-  经系统保存对话框交给用户，可存到下载或网盘目录。图片文件不在磁盘上就跳过，
-  不因为一张丢了的图让整次导出失败。
+  经系统保存对话框交给用户，可存到下载或网盘目录。格式：
+
+```json
+{
+  "format": "masonry_todo.backup",
+  "version": 1,
+  "exportedAt": "2026-10-18T09:30:00.000",
+  "appVersion": "1.4.0+7",
+  "snapshot": { "version": 2, "viewMode": "grid", "kind": "todo", "entries": [] },
+  "images": { "1734567890123456-123456789.jpg": "<base64>" }
+}
+```
+
+  条目里的 `image` 仍只是文件名，**图片字节在顶层 `images` 里**（键 = 文件名），
+  所以整包自带图，不需要另外拷 `images/` 目录。图片文件不在磁盘上就跳过，不因为
+  一张丢了的图让整次导出失败；但会把名字记进 `BackupExport.missingImages`，
+  导出完成时提示「有 N 张图片在原机上找不到，没进备份」，不静默丢。
 - 导入：`decodeBackup` 认两种输入——本应用导出的备份（`format: masonry_todo.backup`）
   与直接拷来的 `todos.json`；其它文件抛 `FormatException`，文案可直接展示给用户。
+  导入后逐个核对条目引用的图是否落盘，缺几张就在提示里说清（备份本身就没带）。
 - 合并：`EntryStore.mergeImported` 按 id 合并，没见过的补上；已有的以本地为准
   （用户后来的改动更可信），只补齐本地缺的楼层与完成状态。图片先落盘再合并条目，
   同名文件不覆盖，名字里带路径分隔符的直接拒掉。
@@ -185,13 +201,24 @@ class Note {
 ## 自动更新（仅 Android）
 
 - 启动 1 秒后检查 `releases/latest`，首页右上角可手动检查；手动检查不受
-  「同一版本只提示一次」的去重限制。
+  「同一版本只提示一次」的去重限制。同一会话内自动检查 3 分钟只做一次，省接口额度。
+- 检查先问 `api.github.com`；未认证接口每小时只有 60 次，被限流（403/429）、连不上
+  或返回看不懂时，改用 `github.com/<repo>/releases/latest` 的 302 定位 tag，再按
+  `masonry-todo-<abi>.apk` 命名约定拼下载地址——发布页不计入接口额度。
 - 版本比较见 `update/app_version.dart`：先比 major.minor.patch，三段相同且双方
   都有第四段时才比构建号。
 - 按设备 ABI 选择 `masonry-todo-<abi>.apk`；已知 ABI 但多个 APK 里找不到对应包时
   判定失败，不静默下错包。
+- 下载：`update/resumable_download.dart` 写 `*.part`，用 `Range: bytes=N-` 续传；
+  服务器回 200（不认 Range）就从头下，不会把两段拼在一起。GitHub 的附件地址会
+  302 到带签名的 CDN，但每次重试都重新请求原地址，所以续传不受签名过期影响。
+- 卡死保护：连接被掐断时 dio 的响应流既不报错也不结束，所以每 30 秒没新字节就由
+  看门狗判死并重试；4xx 不重试，5xx / 超时 / 断连最多重试 3 次，每轮都从 `.part` 续上。
+- 失败文案按原因分开（限流带 `x-ratelimit-reset` 算出的恢复时间、超时、断连、
+  存储满）；下载失败的提示条上有「重试」，直接续传而不是重新检查。
 - 下载写到应用私有 `updates/` 目录，经 FileProvider 交给系统安装器；缺少
-  「安装未知应用」权限时引导到系统设置。
+  「安装未知应用」权限时引导到系统设置。`installApk` 的原生异常会回传 Dart，
+  提示「打不开安装器：…」而不是没反应。
 - MethodChannel 名为 `masonry_todo.updates`（历史命名，保持与原生侧一致）。
 
 ## 本地开发

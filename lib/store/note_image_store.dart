@@ -108,6 +108,12 @@ class NoteImageStore {
     }
   }
 
+  /// 这张图在本地是否还存着。导入后用来算哪些图真的没数据。
+  Future<bool> exists(String name) async {
+    if (name.isEmpty) return false;
+    return (await fileFor(name)).exists();
+  }
+
   String _newName(String ext) {
     final int ts = DateTime.now().microsecondsSinceEpoch;
     final int rand = _random.nextInt(0x7FFFFFFF);
