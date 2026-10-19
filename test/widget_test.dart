@@ -420,4 +420,23 @@ void main() {
     expect(store.entries, isEmpty);
     expect(find.text('还没有待办'), findsWidgets);
   });
+
+  testWidgets('首页备份菜单里有导出与导入', (WidgetTester tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.byTooltip('备份'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('导出备份'), findsOneWidget);
+    expect(find.text('导入备份'), findsOneWidget);
+  });
+
+  testWidgets('窄屏下首页标题与备份入口不溢出', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 1600);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await pumpApp(tester);
+    expect(tester.takeException(), isNull);
+    expect(find.byTooltip('备份'), findsOneWidget);
+  });
 }

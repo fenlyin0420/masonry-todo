@@ -8,7 +8,8 @@
 - Flutter / Dart 3，主要目标平台是 Android（release 只出 APK）。
 - Linux 桌面构建仅用于本地预览 UI，不进入发布产物。
 - 依赖：`path_provider`（本地目录）、`image_picker`（选图）、`image`（压缩图片）、
-  `package_info_plus`（版本号）、`dio`（检查更新与下载 APK）。
+  `package_info_plus`（版本号）、`dio`（检查更新与下载 APK）、
+  `file_picker`（导出 / 导入备份走系统文件对话框）。
 
 ## 目录结构
 
@@ -18,12 +19,14 @@ lib/
   app_theme.dart         主题、卡片强调色与完成态底色
   feedback.dart          完成待办时的触感序列
   nav.dart               详情 / 新建 / 编辑的路由封装
+  backup_flow.dart       导出 / 导入备份的文件对话框与提示
   models/
     entry.dart           Entry、Note、EntryKind 与 JSON 序列化
     entry_text.dart      标题推断、正文预览、时间格式化
   store/
     entry_store.dart     全应用唯一数据源（ChangeNotifier）
     entry_storage.dart   快照结构、JSON 文件存储、内存存储
+    backup.dart          备份文本的编码与解析（图片走 base64）
     note_image_store.dart 楼层图片的落盘、压缩与清理
   pages/
     home_page.dart       双标签首页、瀑布流 / 列表、空状态
@@ -84,9 +87,14 @@ class Note {
 
 - 位置：应用文档目录下 `masonry_todo/todos.json`。目录与文件名沿用 1.x 的命名，
   升级时不搬迁用户数据。
-- 写入：先写 `todos.json.tmp` 再 rename，避免进程中断留下半截 JSON。
-- 读取失败：坏文件改名为 `todos.json.corrupt` 保留现场，本次按空列表启动，
-  不会在下次保存时静默覆盖。
+- 写入：先写 `todos.json.tmp` 再改名；改名之前把旧主文件轮转为 `todos.json.bak`，
+  于是磁盘上始终同时留着新的一份和上一个版本。
+- 读取顺序：主文件 → 不比它旧的 `.tmp`（上次改名没走完）→ `.bak`（主文件读不出来）。
+  走兜底时 `EntryStore.takeRecoveryNotice()` 给出原因，首页提示用户，不静默。
+- 坏文件：解析失败的主文件改名为 `todos.json.corrupt` 留档；半截的 `.tmp` 直接丢弃。
+- 保存失败：`EntryStore.saveError` 记住原因并通知，首页提示「保存失败」并给重试，
+  写成功一次后自动清空。
+- 进程被杀：切后台、隐藏、退出前触发 `flush()`，排队中的写入不会留给杀手。
 - 快照格式（v2）：
 
 ```json
@@ -121,6 +129,17 @@ class Note {
 - GIF 原样复制以保留动画，超过 8 MB 拒绝；其他图片超过 1600 px 时按 EXIF 方向
   烘正后压成 JPEG（质量 82）。
 - 删除条目时，详情页先出页面再清理该条目引用到的图片文件。
+
+### 备份
+
+- 导出：`encodeBackup` 把 `AppSnapshot` 连同它引用到的图片（base64）编成单个 `.json`，
+  经系统保存对话框交给用户，可存到下载或网盘目录。图片文件不在磁盘上就跳过，
+  不因为一张丢了的图让整次导出失败。
+- 导入：`decodeBackup` 认两种输入——本应用导出的备份（`format: masonry_todo.backup`）
+  与直接拷来的 `todos.json`；其它文件抛 `FormatException`，文案可直接展示给用户。
+- 合并：`EntryStore.mergeImported` 按 id 合并，没见过的补上；已有的以本地为准
+  （用户后来的改动更可信），只补齐本地缺的楼层与完成状态。图片先落盘再合并条目，
+  同名文件不覆盖，名字里带路径分隔符的直接拒掉。
 
 ## 关键交互
 

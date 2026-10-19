@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../backup_flow.dart';
 import '../models/entry.dart';
 import '../models/entry_text.dart';
 import '../nav.dart';
@@ -54,7 +57,8 @@ class HomePage extends StatelessWidget {
             const SizedBox(width: 4),
           ],
           _ViewModeToggle(mode: store.viewMode, onChanged: store.setViewMode),
-          const SizedBox(width: 12),
+          const _BackupMenu(),
+          const SizedBox(width: 8),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -106,8 +110,10 @@ class HomePage extends StatelessWidget {
         ],
       ),
     );
-    if (update == null) return page;
-    return UpdateWatch(controller: update, child: page);
+    if (update == null) return _StorageAlerts(child: page);
+    return _StorageAlerts(
+      child: UpdateWatch(controller: update, child: page),
+    );
   }
 
   static String _subtitle(EntryStore store, EntryKind kind) {
@@ -132,6 +138,152 @@ class HomePage extends StatelessWidget {
         : (previewChars / 15).ceil().clamp(1, 4);
     return 96 + titleLines * 21 + previewLines * 18;
   }
+}
+
+/// 备份入口：导出成文件、从文件导入。放在首页右上，不占列表空间。
+enum _BackupAction { export, import }
+
+class _BackupMenu extends StatelessWidget {
+  const _BackupMenu();
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_BackupAction>(
+      tooltip: '备份',
+      icon: const Icon(Icons.more_vert_rounded, size: 20),
+      onSelected: (_BackupAction action) {
+        switch (action) {
+          case _BackupAction.export:
+            unawaited(exportBackup(context));
+          case _BackupAction.import:
+            unawaited(importBackup(context));
+        }
+      },
+      itemBuilder: (BuildContext context) =>
+          const <PopupMenuEntry<_BackupAction>>[
+            PopupMenuItem<_BackupAction>(
+              value: _BackupAction.export,
+              child: _BackupMenuRow(
+                icon: Icons.ios_share_rounded,
+                label: '导出备份',
+              ),
+            ),
+            PopupMenuItem<_BackupAction>(
+              value: _BackupAction.import,
+              child: _BackupMenuRow(
+                icon: Icons.unarchive_outlined,
+                label: '导入备份',
+              ),
+            ),
+          ],
+    );
+  }
+}
+
+class _BackupMenuRow extends StatelessWidget {
+  const _BackupMenuRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: 18),
+        const SizedBox(width: 10),
+        Text(label),
+      ],
+    );
+  }
+}
+
+/// 把存储层的异常摆到用户面前：载入时走了兜底、保存失败。两者都不该静默。
+class _StorageAlerts extends StatefulWidget {
+  const _StorageAlerts({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_StorageAlerts> createState() => _StorageAlertsState();
+}
+
+class _StorageAlertsState extends State<_StorageAlerts> {
+  EntryStore? _store;
+  Object? _shownError;
+  bool _scheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final EntryStore store = StoreScope.of(context);
+    if (!identical(store, _store)) {
+      _store?.removeListener(_schedule);
+      _store = store..addListener(_schedule);
+    }
+    _schedule();
+  }
+
+  @override
+  void dispose() {
+    _store?.removeListener(_schedule);
+    super.dispose();
+  }
+
+  /// store 变化可能发生在 build 期间，提示推到这一帧之后再弹。
+  void _schedule() {
+    if (_scheduled) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      if (mounted) _report();
+    });
+  }
+
+  void _report() {
+    final EntryStore? store = _store;
+    if (store == null) return;
+
+    final RecoverySource? recovery = store.takeRecoveryNotice();
+    if (recovery != null) {
+      _snack(
+        recovery == RecoverySource.backup
+            ? '上次的数据读不出来，已从自动备份恢复'
+            : '上次没存完就退出了，已恢复到最后一次改动',
+      );
+    }
+
+    final Object? error = store.saveError;
+    if (error == null) {
+      _shownError = null;
+      return;
+    }
+    if (identical(error, _shownError)) return;
+    _shownError = error;
+    _snack(
+      '保存失败，这次改动还没写进手机',
+      action: SnackBarAction(
+        label: '重试',
+        onPressed: () => store.retrySave(),
+      ),
+    );
+  }
+
+  void _snack(String text, {SnackBarAction? action}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(text),
+          action: action,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _KindTabs extends StatelessWidget {

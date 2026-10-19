@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -48,11 +49,37 @@ Future<UpdateController?> _buildUpdateController() async {
   }
 }
 
-class ShijiApp extends StatelessWidget {
+class ShijiApp extends StatefulWidget {
   const ShijiApp({super.key, required this.store, this.updateController});
 
   final EntryStore store;
   final UpdateController? updateController;
+
+  @override
+  State<ShijiApp> createState() => _ShijiAppState();
+}
+
+class _ShijiAppState extends State<ShijiApp> {
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    // 进程随时可能被系统杀掉：切后台、退出前把排队中的写入推完。
+    _lifecycle = AppLifecycleListener(
+      onHide: _flush,
+      onPause: _flush,
+      onDetach: _flush,
+    );
+  }
+
+  void _flush() => unawaited(widget.store.flush());
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -63,9 +90,9 @@ class ShijiApp extends StatelessWidget {
       darkTheme: buildAppTheme(Brightness.dark),
       home: const HomePage(),
     );
-    final UpdateController? update = updateController;
+    final UpdateController? update = widget.updateController;
     return StoreScope(
-      store: store,
+      store: widget.store,
       child: update == null ? app : UpdateScope(notifier: update, child: app),
     );
   }

@@ -3,6 +3,21 @@ import 'package:flutter/foundation.dart';
 import '../models/entry.dart';
 import 'entry_storage.dart';
 
+/// 导入合并的结果，用来给用户一句人话。
+class ImportOutcome {
+  const ImportOutcome({
+    this.addedEntries = 0,
+    this.addedNotes = 0,
+    this.updatedEntries = 0,
+  });
+
+  final int addedEntries;
+  final int addedNotes;
+  final int updatedEntries;
+
+  bool get isEmpty => addedEntries == 0 && addedNotes == 0 && updatedEntries == 0;
+}
+
 /// 全应用唯一的数据源。任何改动都立即通知 UI，并异步落盘。
 class EntryStore extends ChangeNotifier {
   EntryStore(this._storage);
@@ -14,9 +29,22 @@ class EntryStore extends ChangeNotifier {
   bool _loaded = false;
   int _sequence = 0;
   Future<void> _pendingSave = Future<void>.value();
+  RecoverySource? _recovery;
+  Object? _saveError;
 
   bool get isLoaded => _loaded;
   ViewMode get viewMode => _viewMode;
+
+  /// 最近一次落盘失败的原因；成功后自动清空。非 null 时得让用户知道，
+  /// 否则他以为改动已经存进手机了。
+  Object? get saveError => _saveError;
+
+  /// 取走一次性的「本次是从兜底文件恢复的」提示，取完即清。
+  RecoverySource? takeRecoveryNotice() {
+    final RecoverySource? recovery = _recovery;
+    _recovery = null;
+    return recovery;
+  }
 
   /// 首页当前所在标签页。
   EntryKind get kind => _kind;
@@ -61,12 +89,14 @@ class EntryStore extends ChangeNotifier {
   }
 
   Future<void> load() async {
-    final snapshot = await _storage.load();
+    final LoadResult result = await _storage.load();
+    final AppSnapshot snapshot = result.snapshot;
     _entries
       ..clear()
       ..addAll(snapshot.entries);
     _viewMode = snapshot.viewMode;
     _kind = snapshot.kind;
+    _recovery = result.recoveredFrom;
     _loaded = true;
     notifyListeners();
   }
@@ -165,18 +195,90 @@ class EntryStore extends ChangeNotifier {
 
   void _persistAndNotify() {
     notifyListeners();
+    _persist();
+  }
+
+  /// 把当前状态排进写入队列；快照在这里定住，后面的改动各排各的。
+  void _persist() {
     final snapshot = AppSnapshot(
       entries: List<Entry>.unmodifiable(_entries),
       viewMode: _viewMode,
       kind: _kind,
     );
-    _pendingSave = _pendingSave
-        .then((_) => _storage.save(snapshot))
-        .catchError((Object error) {
-          debugPrint('保存失败：$error');
-        });
+    _pendingSave = _pendingSave.then((_) => _write(snapshot));
   }
 
-  /// 等待所有写入落盘。
+  Future<void> _write(AppSnapshot snapshot) async {
+    try {
+      await _storage.save(snapshot);
+      if (_saveError == null) return;
+      _saveError = null;
+      notifyListeners();
+    } catch (error) {
+      debugPrint('保存失败：$error');
+      _saveError = error;
+      notifyListeners();
+    }
+  }
+
+  /// 导入合并的结果，用来给用户一句人话。
+  ImportOutcome mergeImported(List<Entry> incoming) {
+    int addedEntries = 0;
+    int addedNotes = 0;
+    int updatedEntries = 0;
+
+    for (final Entry source in incoming) {
+      final Entry? local = byId(source.id);
+      if (local == null) {
+        _entries.add(source);
+        addedEntries++;
+        addedNotes += source.notes.length;
+        continue;
+      }
+
+      // 同一条目本地是用户后来改的，标题正文本地为准；只把本地缺的补上。
+      bool touched = false;
+      final Set<String> known = local.notes
+          .map((Note note) => note.id)
+          .toSet();
+      for (final Note note in source.notes) {
+        if (!known.add(note.id)) continue;
+        local.notes.add(note);
+        addedNotes++;
+        touched = true;
+      }
+
+      if (source.isDone) {
+        final DateTime sourceDoneAt = source.doneAt ?? source.createdAt;
+        final DateTime? localDoneAt = local.doneAt;
+        if (!local.isDone ||
+            localDoneAt == null ||
+            sourceDoneAt.isAfter(localDoneAt)) {
+          local.done = true;
+          local.doneAt = source.doneAt;
+          touched = true;
+        }
+      }
+
+      if (touched) updatedEntries++;
+    }
+
+    if (addedEntries > 0 || addedNotes > 0 || updatedEntries > 0) {
+      _persistAndNotify();
+    }
+    return ImportOutcome(
+      addedEntries: addedEntries,
+      addedNotes: addedNotes,
+      updatedEntries: updatedEntries,
+    );
+  }
+
+  /// 保存失败后重试：再写一次当前状态。
+  Future<void> retrySave() {
+    _persist();
+    return flush();
+  }
+
+  /// 等待所有写入落盘；切后台、退出前调用，别把排队中的改动留给进程被杀。
   Future<void> flush() => _pendingSave;
 }

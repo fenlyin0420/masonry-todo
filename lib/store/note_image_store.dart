@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
@@ -74,6 +74,30 @@ class NoteImageStore {
   Future<File> fileFor(String name) async {
     final dir = await _dir();
     return File('${dir.path}/$name');
+  }
+
+  /// 读出图片字节，供导出备份用；文件不在就返回 null。
+  Future<Uint8List?> read(String name) async {
+    final File file = await fileFor(name);
+    if (!await file.exists()) return null;
+    try {
+      return await file.readAsBytes();
+    } catch (error) {
+      debugPrint('读取图片 $name 失败：$error');
+      return null;
+    }
+  }
+
+  /// 导入时把备份里的图片写回来。同名文件已存在就不覆盖，本地那份优先；
+  /// 名字里带路径分隔符的一律拒掉，别让备份写到目录外面去。
+  Future<bool> restore(String name, Uint8List bytes) async {
+    if (name.isEmpty || name.contains('/') || name.contains('\\')) {
+      return false;
+    }
+    final File file = await fileFor(name);
+    if (await file.exists()) return false;
+    await file.writeAsBytes(bytes, flush: true);
+    return true;
   }
 
   /// 删除记录图片（todo 被删时清理）。文件不存在时静默。

@@ -153,8 +153,10 @@ void main() {
       FileEntryStorage(directoryProvider: () async => dir),
     );
     await broken.load();
-    expect(broken.entries, isEmpty);
+    // 坏掉的主文件留档，数据从上一次成功保存的备份里救回来。
     expect(File('${file.path}.corrupt').existsSync(), isTrue);
+    expect(broken.takeRecoveryNotice(), RecoverySource.backup);
+    expect(broken.entries.single.title, '跨实例');
   });
 
   group('旧数据兼容', () {
