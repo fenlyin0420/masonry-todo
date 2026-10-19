@@ -328,6 +328,120 @@ class _OriginFloor extends StatelessWidget {
   }
 }
 
+/// 评论楼层正文的折叠高度：超过这个高度的楼层点「查看详情」展开。
+const double _noteCollapsedHeight = 120;
+
+/// 折叠开关：过长的评论靠它展开 / 收起。
+class _ExpandToggle extends StatelessWidget {
+  const _ExpandToggle({required this.expanded, required this.onTap});
+
+  final bool expanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          foregroundColor: scheme.primary,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          minimumSize: const Size(0, 32),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          textStyle: theme.textTheme.labelMedium,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(expanded ? '收起' : '查看详情'),
+            Icon(
+              expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 评论楼层的正文：超过 [_noteCollapsedHeight] 就截断，点开关展开全文。
+class _CollapsibleText extends StatefulWidget {
+  const _CollapsibleText({required this.text, required this.style});
+
+  final String text;
+  final TextStyle? style;
+
+  @override
+  State<_CollapsibleText> createState() => _CollapsibleTextState();
+}
+
+class _CollapsibleTextState extends State<_CollapsibleText> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // 先按渲染宽度量一遍高度，判断要不要折叠，省得靠首帧回调测量闪一下。
+        final bool collapsible =
+            constraints.maxWidth.isFinite &&
+            _textHeight(
+                  widget.text,
+                  widget.style,
+                  constraints.maxWidth,
+                  MediaQuery.textScalerOf(context),
+                ) >
+                _noteCollapsedHeight;
+        final Widget text = Text(widget.text, style: widget.style);
+        if (!collapsible) return text;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (_expanded)
+              text
+            else
+              SizedBox(
+                height: _noteCollapsedHeight,
+                child: ClipRect(
+                  child: SingleChildScrollView(
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: text,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 2),
+            _ExpandToggle(
+              expanded: _expanded,
+              onTap: () => setState(() => _expanded = !_expanded),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 按给定宽度估算文本高度（与 Text 的排版一致）。
+double _textHeight(
+  String text,
+  TextStyle? style,
+  double width,
+  TextScaler textScaler,
+) {
+  final TextPainter painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    textScaler: textScaler,
+  )..layout(maxWidth: width);
+  return painter.height;
+}
+
 class _StatusPill extends StatelessWidget {
   const _StatusPill({required this.entry});
 
@@ -407,8 +521,8 @@ class _NoteFloor extends StatelessWidget {
       floor: floor,
       children: <Widget>[
         if (note.text.isNotEmpty)
-          Text(
-            note.text,
+          _CollapsibleText(
+            text: note.text,
             style: theme.textTheme.bodyMedium?.copyWith(height: 1.6),
           ),
         if (note.image != null)
@@ -431,7 +545,11 @@ class _NoteFloor extends StatelessWidget {
   }
 }
 
-/// 楼层里的图片：限宽显示，点按放大。动图（GIF）由 Image.file 原生播放。
+/// 缩略图上限：评论区的图片按比例缩到这个框里，别再占满一整行。
+const double _thumbMaxWidth = 100;
+const double _thumbMaxHeight = 132;
+
+/// 楼层里的图片：缩成小图靠左显示，点按放大。动图（GIF）由 Image.file 原生播放。
 class _NoteImage extends StatefulWidget {
   const _NoteImage({required this.name, required this.images});
 
@@ -469,37 +587,33 @@ class _NoteImageState extends State<_NoteImage> {
       builder: (BuildContext context, AsyncSnapshot<File> snapshot) {
         final File? file = snapshot.data;
         if (file == null || !file.existsSync()) {
-          return Container(
-            width: 120,
-            height: 72,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.broken_image_outlined,
-              color: scheme.onSurfaceVariant,
-            ),
-          );
+          return _brokenImage(scheme);
         }
-        return GestureDetector(
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute<void>(
-              builder: (BuildContext context) => _ImagePreviewPage(file: file),
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) =>
+                    _ImagePreviewPage(file: file),
+              ),
             ),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 260),
-              child: Image.file(
-                file,
-                errorBuilder: (
-                  BuildContext context,
-                  Object error,
-                  StackTrace? stackTrace,
-                ) => _brokenImage(scheme),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: _thumbMaxWidth,
+                  maxHeight: _thumbMaxHeight,
+                ),
+                child: Image.file(
+                  file,
+                  fit: BoxFit.contain,
+                  errorBuilder: (
+                    BuildContext context,
+                    Object error,
+                    StackTrace? stackTrace,
+                  ) => _brokenImage(scheme),
+                ),
               ),
             ),
           ),
@@ -510,11 +624,11 @@ class _NoteImageState extends State<_NoteImage> {
 
   Widget _brokenImage(ColorScheme scheme) {
     return Container(
-      width: 120,
-      height: 72,
+      width: _thumbMaxWidth,
+      height: 74,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
       ),
       alignment: Alignment.center,
       child: Icon(Icons.broken_image_outlined, color: scheme.onSurfaceVariant),

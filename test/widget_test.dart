@@ -211,6 +211,48 @@ void main() {
     expect(store.entries.single.notes.length, 1);
   });
 
+  testWidgets('评论楼层过长时固定高度，点「查看详情」展开', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    final Entry entry = store.create(title: '长评论');
+    store.addNote(entry.id, '这是一条很长的评论。' * 60);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('长评论'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('查看详情'), findsOneWidget);
+    expect(find.text('收起'), findsNothing);
+    final Finder collapsedBox = find.byType(SingleChildScrollView);
+    expect(tester.getSize(collapsedBox).height, 120);
+
+    await tester.tap(find.text('查看详情'));
+    await tester.pumpAndSettle();
+    expect(find.text('收起'), findsOneWidget);
+    expect(find.text('查看详情'), findsNothing);
+    expect(collapsedBox, findsNothing);
+
+    await tester.tap(find.text('收起'));
+    await tester.pumpAndSettle();
+    expect(find.text('查看详情'), findsOneWidget);
+    expect(tester.getSize(collapsedBox).height, 120);
+  });
+
+  testWidgets('短评论与主楼都不给折叠开关', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    final Entry entry = store.create(
+      title: '主楼再长也不折叠',
+      body: '这是一段很长的正文。' * 60,
+    );
+    store.addNote(entry.id, '两行就够。');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('主楼再长也不折叠'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('查看详情'), findsNothing);
+    expect(find.text('收起'), findsNothing);
+  });
+
   testWidgets('详情页可以编辑标题，返回首页后生效', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '旧标题');
