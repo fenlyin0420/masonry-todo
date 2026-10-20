@@ -24,7 +24,8 @@ class EntryStore extends ChangeNotifier {
 
   final EntryStorage _storage;
   final List<Entry> _entries = <Entry>[];
-  ViewMode _viewMode = ViewMode.grid;
+  ViewMode _todoViewMode = ViewMode.grid;
+  ViewMode _ideaViewMode = ViewMode.grid;
   EntryKind _kind = EntryKind.todo;
   bool _loaded = false;
   int _sequence = 0;
@@ -33,7 +34,12 @@ class EntryStore extends ChangeNotifier {
   Object? _saveError;
 
   bool get isLoaded => _loaded;
-  ViewMode get viewMode => _viewMode;
+
+  /// 当前标签页的展示形态。待办与灵感各记各的。
+  ViewMode get viewMode => viewModeOf(_kind);
+
+  ViewMode viewModeOf(EntryKind kind) =>
+      kind == EntryKind.idea ? _ideaViewMode : _todoViewMode;
 
   /// 最近一次落盘失败的原因；成功后自动清空。非 null 时得让用户知道，
   /// 否则他以为改动已经存进手机了。
@@ -94,7 +100,8 @@ class EntryStore extends ChangeNotifier {
     _entries
       ..clear()
       ..addAll(snapshot.entries);
-    _viewMode = snapshot.viewMode;
+    _todoViewMode = snapshot.todoViewMode;
+    _ideaViewMode = snapshot.ideaViewMode;
     _kind = snapshot.kind;
     _recovery = result.recoveredFrom;
     _loaded = true;
@@ -149,11 +156,24 @@ class EntryStore extends ChangeNotifier {
     return true;
   }
 
+  /// 只改当前标签页的展示形态，另一边的设置不动。
   void setViewMode(ViewMode mode) {
-    if (_viewMode == mode) return;
-    _viewMode = mode;
+    if (viewModeOf(_kind) == mode) return;
+    if (_kind == EntryKind.idea) {
+      _ideaViewMode = mode;
+    } else {
+      _todoViewMode = mode;
+    }
     _persistAndNotify();
   }
+
+  /// 当前状态的完整快照：落盘、导出备份都用它。
+  AppSnapshot get snapshot => AppSnapshot(
+    entries: List<Entry>.unmodifiable(entries),
+    todoViewMode: _todoViewMode,
+    ideaViewMode: _ideaViewMode,
+    kind: _kind,
+  );
 
   void setKind(EntryKind kind) {
     if (_kind == kind) return;
@@ -200,12 +220,8 @@ class EntryStore extends ChangeNotifier {
 
   /// 把当前状态排进写入队列；快照在这里定住，后面的改动各排各的。
   void _persist() {
-    final snapshot = AppSnapshot(
-      entries: List<Entry>.unmodifiable(_entries),
-      viewMode: _viewMode,
-      kind: _kind,
-    );
-    _pendingSave = _pendingSave.then((_) => _write(snapshot));
+    final AppSnapshot frozen = snapshot;
+    _pendingSave = _pendingSave.then((_) => _write(frozen));
   }
 
   Future<void> _write(AppSnapshot snapshot) async {

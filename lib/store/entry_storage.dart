@@ -9,17 +9,27 @@ import '../models/entry.dart';
 /// 首页展示形态。
 enum ViewMode { grid, list }
 
-/// 落盘的一份完整快照：所有条目 + 首页展示形态 + 当前标签页。
+/// 落盘的一份完整快照：所有条目 + 两个标签页各自的展示形态 + 当前标签页。
 class AppSnapshot {
   const AppSnapshot({
     required this.entries,
-    this.viewMode = ViewMode.grid,
+    this.todoViewMode = ViewMode.grid,
+    this.ideaViewMode = ViewMode.grid,
     this.kind = EntryKind.todo,
   });
 
   final List<Entry> entries;
-  final ViewMode viewMode;
+
+  /// 待办页和灵感页各记各的展示形态：一边切列表，另一边还是原来的样子。
+  final ViewMode todoViewMode;
+  final ViewMode ideaViewMode;
   final EntryKind kind;
+
+  ViewMode viewModeOf(EntryKind kind) =>
+      kind == EntryKind.idea ? ideaViewMode : todoViewMode;
+
+  static ViewMode _readViewMode(Object? raw) =>
+      raw == ViewMode.list.name ? ViewMode.list : ViewMode.grid;
 
   factory AppSnapshot.fromJson(Map<String, dynamic> json) {
     final entries = <Entry>[];
@@ -32,16 +42,27 @@ class AppSnapshot {
         }
       }
     }
+    // v3 起两个标签页分开记；v2 及更早只有一个共用的 viewMode，两边都沿用它。
+    final Object? rawModes = json['viewModes'];
+    final Map<dynamic, dynamic> modes = rawModes is Map
+        ? rawModes
+        : <dynamic, dynamic>{};
+    final bool split = modes.isNotEmpty;
+    final ViewMode legacy = _readViewMode(json['viewMode']);
     return AppSnapshot(
       entries: entries,
-      viewMode: json['viewMode'] == 'list' ? ViewMode.list : ViewMode.grid,
+      todoViewMode: split ? _readViewMode(modes[EntryKind.todo.name]) : legacy,
+      ideaViewMode: split ? _readViewMode(modes[EntryKind.idea.name]) : legacy,
       kind: entryKindFromJson(json['kind']),
     );
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'version': 2,
-    'viewMode': viewMode == ViewMode.list ? 'list' : 'grid',
+    'version': 3,
+    'viewModes': <String, String>{
+      EntryKind.todo.name: todoViewMode.name,
+      EntryKind.idea.name: ideaViewMode.name,
+    },
     'kind': kind.name,
     'entries': entries.map((entry) => entry.toJson()).toList(),
   };

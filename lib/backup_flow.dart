@@ -28,11 +28,7 @@ Future<void> exportBackup(BuildContext context) async {
       () async {
         await store.flush();
         final BackupExport bundle = await encodeBackup(
-          AppSnapshot(
-            entries: store.entries,
-            viewMode: store.viewMode,
-            kind: store.kind,
-          ),
+          store.snapshot,
           images,
           appVersion: await _appVersion(),
         );

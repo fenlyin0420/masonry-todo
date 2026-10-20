@@ -99,12 +99,12 @@ class Note {
 - 保存失败：`EntryStore.saveError` 记住原因并通知，首页提示「保存失败」并给重试，
   写成功一次后自动清空。
 - 进程被杀：切后台、隐藏、退出前触发 `flush()`，排队中的写入不会留给杀手。
-- 快照格式（v2）：
+- 快照格式（v3）：
 
 ```json
 {
-  "version": 2,
-  "viewMode": "grid",
+  "version": 3,
+  "viewModes": { "todo": "grid", "idea": "list" },
   "kind": "todo",
   "entries": [
     {
@@ -124,7 +124,8 @@ class Note {
 ```
 
 - 兼容：读取时 `entries` 与旧版 `todos` 字段都认；缺少 `kind` 的条目按待办处理；
-  `viewMode` 缺省为 `grid`，`kind` 缺省为 `todo`。
+  `kind` 缺省为 `todo`。待办页与灵感页各记一套 `viewModes`，互不影响；v2 及更早
+  只有一个共用的 `viewMode`，读入时两边都沿用它，缺省为 `grid`。
 - 所有写操作由 `EntryStore` 串行排队（`_pendingSave`），测试可用 `flush()` 等待落盘。
 
 ### 图片
@@ -145,7 +146,12 @@ class Note {
   "version": 1,
   "exportedAt": "2026-10-18T09:30:00.000",
   "appVersion": "1.4.0+7",
-  "snapshot": { "version": 2, "viewMode": "grid", "kind": "todo", "entries": [] },
+  "snapshot": {
+    "version": 3,
+    "viewModes": { "todo": "grid", "idea": "grid" },
+    "kind": "todo",
+    "entries": []
+  },
   "images": { "1734567890123456-123456789.jpg": "<base64>" }
 }
 ```

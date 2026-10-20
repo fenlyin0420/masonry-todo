@@ -151,6 +151,8 @@ class _BackupMenu extends StatelessWidget {
     return PopupMenuButton<_BackupAction>(
       tooltip: '备份',
       icon: const Icon(Icons.more_vert_rounded, size: 20),
+      // over 会把菜单压在按钮上，把三点遮掉；改成从按钮下方展开。
+      position: PopupMenuPosition.under,
       onSelected: (_BackupAction action) {
         switch (action) {
           case _BackupAction.export:
@@ -372,7 +374,9 @@ class _TabButton extends StatelessWidget {
           curve: Curves.easeOut,
           height: 38,
           decoration: BoxDecoration(
-            color: selected ? scheme.surface : Colors.transparent,
+            // 未选中不能用 Colors.transparent：它是透明黑，Color.lerp 不按预乘
+            // 插值，补间中途会变成半透明灰色，切换时底色闪一下。
+            color: scheme.surface.withValues(alpha: selected ? 1 : 0),
             borderRadius: BorderRadius.circular(10),
             boxShadow: selected
                 ? <BoxShadow>[
@@ -489,7 +493,8 @@ class _ModeButton extends StatelessWidget {
           duration: const Duration(milliseconds: 160),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: selected ? scheme.surface : Colors.transparent,
+            // 同 _TabButton：未选中用同色调的零透明，避免补间经过灰色。
+            color: scheme.surface.withValues(alpha: selected ? 1 : 0),
             borderRadius: BorderRadius.circular(9),
             boxShadow: selected
                 ? <BoxShadow>[

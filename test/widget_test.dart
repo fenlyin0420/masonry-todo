@@ -7,6 +7,8 @@ import 'package:masonry_todo/models/entry.dart';
 import 'package:masonry_todo/pages/detail_page.dart';
 import 'package:masonry_todo/store/entry_storage.dart';
 import 'package:masonry_todo/store/entry_store.dart';
+import 'package:masonry_todo/widgets/entry_card.dart';
+import 'package:masonry_todo/widgets/entry_row.dart';
 import 'package:masonry_todo/widgets/markdown_view.dart';
 import 'package:masonry_todo/widgets/store_scope.dart';
 
@@ -461,6 +463,31 @@ void main() {
 
     expect(store.entries, isEmpty);
     expect(find.text('还没有待办'), findsWidgets);
+  });
+
+  testWidgets('待办与灵感各记一套卡片／列表设置', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    store.create(title: '一件待办');
+    store.create(kind: EntryKind.idea, title: '一个念头');
+    await tester.pumpAndSettle();
+    expect(find.byType(EntryCard), findsOneWidget);
+
+    await tester.tap(find.byTooltip('列表'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EntryRow), findsOneWidget);
+
+    await openIdeaTab(tester);
+    expect(find.byType(EntryCard), findsOneWidget, reason: '待办切成列表不该带走灵感页的卡片');
+
+    await tester.tap(find.byTooltip('列表'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EntryRow), findsOneWidget);
+
+    await tester.tap(find.text('待办'));
+    await tester.pumpAndSettle();
+    expect(store.viewModeOf(EntryKind.todo), ViewMode.list);
+    expect(store.viewModeOf(EntryKind.idea), ViewMode.list);
+    expect(find.byType(EntryRow), findsOneWidget);
   });
 
   testWidgets('首页备份菜单里有导出与导入', (WidgetTester tester) async {

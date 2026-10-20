@@ -109,18 +109,30 @@ void main() {
     expect(store.byId(entry.id)!.notes, isEmpty);
   });
 
-  test('展示形态与当前标签页都会持久化', () async {
+  test('待办与灵感的展示形态各记各的', () async {
     final MemoryEntryStorage storage = MemoryEntryStorage();
     final EntryStore store = EntryStore(storage);
     await store.load();
     store.setViewMode(ViewMode.list);
     store.setKind(EntryKind.idea);
+    expect(store.viewMode, ViewMode.grid, reason: '灵感页不受待办页影响');
     await store.flush();
 
     final EntryStore reopened = EntryStore(storage);
     await reopened.load();
-    expect(reopened.viewMode, ViewMode.list);
     expect(reopened.kind, EntryKind.idea);
+    expect(reopened.viewModeOf(EntryKind.todo), ViewMode.list);
+    expect(reopened.viewModeOf(EntryKind.idea), ViewMode.grid);
+
+    reopened.setViewMode(ViewMode.list);
+    reopened.setKind(EntryKind.todo);
+    reopened.setViewMode(ViewMode.grid);
+    await reopened.flush();
+
+    final EntryStore again = EntryStore(storage);
+    await again.load();
+    expect(again.viewModeOf(EntryKind.todo), ViewMode.grid);
+    expect(again.viewModeOf(EntryKind.idea), ViewMode.list);
   });
 
   test('JSON 文件存储可跨实例读回，坏文件会被备份', () async {
@@ -180,7 +192,12 @@ void main() {
       expect(entry.kind, EntryKind.todo);
       expect(entry.isDone, isTrue);
       expect(entry.doneAt, DateTime(2026, 10, 2, 9));
-      expect(snapshot.viewMode, ViewMode.list);
+      expect(snapshot.viewModeOf(EntryKind.todo), ViewMode.list);
+      expect(
+        snapshot.viewModeOf(EntryKind.idea),
+        ViewMode.list,
+        reason: '旧数据只有一个 viewMode，两边都沿用它',
+      );
       expect(snapshot.kind, EntryKind.todo);
     });
 

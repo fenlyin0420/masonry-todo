@@ -27,7 +27,10 @@ class CheckSquare extends StatelessWidget {
               height: 22,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(7),
-                color: checked ? scheme.primary : Colors.transparent,
+                // 与首页标签一致：未选中用零透明的主题色，免得勾选时闪灰色。
+                color: checked
+                    ? scheme.primary
+                    : scheme.primary.withValues(alpha: 0),
                 border: Border.all(
                   color: checked
                       ? scheme.primary
