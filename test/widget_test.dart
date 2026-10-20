@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:masonry_todo/main.dart';
@@ -5,6 +7,7 @@ import 'package:masonry_todo/models/entry.dart';
 import 'package:masonry_todo/pages/detail_page.dart';
 import 'package:masonry_todo/store/entry_storage.dart';
 import 'package:masonry_todo/store/entry_store.dart';
+import 'package:masonry_todo/widgets/markdown_view.dart';
 import 'package:masonry_todo/widgets/store_scope.dart';
 
 Future<EntryStore> pumpApp(
@@ -122,6 +125,41 @@ void main() {
     expect(find.text('把技术书按主题归类。'), findsOneWidget);
   });
 
+  testWidgets('卡片把 Markdown 标记转成文字，不显示符号', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    store.create(body: '**加粗** 标题。正文 `代码`。');
+    await tester.pumpAndSettle();
+
+    expect(find.text('加粗 标题。'), findsWidgets);
+    expect(find.text('正文 代码。'), findsOneWidget);
+    expect(find.textContaining('**', findRichText: true), findsNothing);
+    expect(find.textContaining('`', findRichText: true), findsNothing);
+  });
+
+  testWidgets('详情页正文与楼层按 Markdown 渲染', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    final Entry entry = store.create(
+      title: '写周报',
+      body: '# 周报\n\n- 完成 A\n- 完成 B\n\n> 引用一句\n\n**重点**：交付',
+    );
+    store.addNote(entry.id, '补充 `flutter test` 与 ~~作废~~');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('写周报'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('完成 A', findRichText: true), findsOneWidget);
+    expect(find.textContaining('完成 B', findRichText: true), findsOneWidget);
+    expect(find.textContaining('引用一句', findRichText: true), findsOneWidget);
+    expect(find.textContaining('flutter test', findRichText: true), findsOneWidget);
+    expect(find.textContaining('作废', findRichText: true), findsOneWidget);
+    // 标记符号不该出现在页面上了。
+    expect(find.textContaining('#', findRichText: true), findsNothing);
+    expect(find.textContaining('**', findRichText: true), findsNothing);
+    expect(find.textContaining('~~', findRichText: true), findsNothing);
+    expect(find.textContaining('`', findRichText: true), findsNothing);
+  });
+
   testWidgets('长按 3 秒把卡片标记完成', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '长按完成我');
@@ -223,30 +261,34 @@ void main() {
 
     expect(find.text('查看详情'), findsOneWidget);
     expect(find.text('收起'), findsNothing);
-    final Finder noteText = find.text(longText);
-    int? collapsedLines = tester.widget<Text>(noteText).maxLines;
-    expect(collapsedLines, isNotNull);
-    expect(collapsedLines, greaterThan(0));
-    expect(tester.widget<Text>(noteText).overflow, TextOverflow.clip);
-    // 折叠高度不超过阈值，且正好是整行高度：不会出现被削掉一半的行。
-    final double collapsedHeight = tester.getSize(noteText).height;
-    final double lineHeight = collapsedHeight / collapsedLines!;
-    expect(collapsedHeight, lessThanOrEqualTo(120));
-    expect(collapsedHeight, moreOrLessEquals(lineHeight * collapsedLines));
+
+    // 折叠靠外层裁切实现：Markdown 内容本身按完整高度排版，被裁到阈值以内。
+    double clippedHeight() {
+      final Finder clips = find.ancestor(
+        of: find.byType(MarkdownView),
+        matching: find.byType(ClipRect),
+      );
+      return clips
+          .evaluate()
+          .map((Element element) => tester.getSize(find.byWidget(element.widget)).height)
+          .reduce(min);
+    }
+
+    expect(find.byType(MarkdownView), findsOneWidget);
+    expect(clippedHeight(), lessThanOrEqualTo(120));
+    // 折叠后仍然占满大半预算，不是把内容全裁没了。
+    expect(clippedHeight(), greaterThan(90));
 
     await tester.tap(find.text('查看详情'));
     await tester.pumpAndSettle();
     expect(find.text('收起'), findsOneWidget);
     expect(find.text('查看详情'), findsNothing);
-    expect(tester.widget<Text>(noteText).maxLines, isNull);
-    expect(tester.getSize(noteText).height, greaterThan(120));
+    expect(tester.getSize(find.byType(MarkdownView)).height, greaterThan(120));
 
     await tester.tap(find.text('收起'));
     await tester.pumpAndSettle();
     expect(find.text('查看详情'), findsOneWidget);
-    collapsedLines = tester.widget<Text>(noteText).maxLines;
-    expect(collapsedLines, isNotNull);
-    expect(tester.getSize(noteText).height, lessThanOrEqualTo(120));
+    expect(clippedHeight(), lessThanOrEqualTo(120));
   });
 
   testWidgets('短评论与主楼都不给折叠开关', (WidgetTester tester) async {

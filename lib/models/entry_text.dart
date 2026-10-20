@@ -1,3 +1,4 @@
+import '../markdown/inline_markdown.dart';
 import 'entry.dart';
 
 const List<String> _sentenceEnders = <String>[
@@ -30,22 +31,36 @@ String firstSentence(String text) {
 }
 
 /// 卡片标题：有标题用标题，没有标题取正文第一句，都为空时给个占位。
+/// Markdown 标记在这里去掉，标题按纯文本显示。
 String displayTitle(Entry entry) {
-  final title = entry.title.trim();
+  final title = markdownPlainText(entry.title).trim();
   if (title.isNotEmpty) return title;
-  final sentence = firstSentence(entry.body);
+  final sentence = firstSentence(markdownPlainText(entry.body));
   if (sentence.isNotEmpty) return sentence;
   return entry.isTodo ? '未命名待办' : '未命名灵感';
 }
 
-/// 卡片正文预览：若标题取自正文第一句，预览就从第二句开始，避免重复。
+/// 卡片正文预览的纯文本：若标题取自正文第一句，预览就从第二句开始，避免重复。
 String bodyPreview(Entry entry) {
-  final body = entry.body.trim();
+  final body = markdownPlainText(entry.body).trim();
   if (body.isEmpty) return '';
   if (entry.title.trim().isNotEmpty) return body;
   final sentence = firstSentence(body);
   if (sentence.isEmpty) return '';
   return body.substring(sentence.length).trim();
+}
+
+/// 卡片预览要用的一段：要不要显示，以及从正文第几个纯文本字符开始渲染。
+/// 渲染用的是原始 Markdown 文本，所以 [skip] 是纯文本下标；
+/// 一次解析既算出空不空，也算出取句位置，卡片不用把正文解析两遍。
+({bool visible, int skip}) previewSlice(Entry entry) {
+  if (entry.body.trim().isEmpty) return (visible: false, skip: 0);
+  if (entry.title.trim().isNotEmpty) return (visible: true, skip: 0);
+  final plain = markdownPlainText(entry.body);
+  final sentence = firstSentence(plain);
+  if (sentence.isEmpty) return (visible: false, skip: 0);
+  final skip = plain.length - plain.trimLeft().length + sentence.length;
+  return (visible: skip < plain.trimRight().length, skip: skip);
 }
 
 String _two(int value) => value.toString().padLeft(2, '0');

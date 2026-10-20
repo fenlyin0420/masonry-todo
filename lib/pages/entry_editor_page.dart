@@ -193,6 +193,13 @@ class _EntryEditorPageState extends State<EntryEditorPage> {
                   color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
                 ),
               ),
+              const SizedBox(height: 4),
+              Text(
+                '正文支持 Markdown：**加粗**、`代码`、- 列表、> 引用。',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                ),
+              ),
             ],
           ),
         ),

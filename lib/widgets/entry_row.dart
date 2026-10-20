@@ -8,6 +8,7 @@ import '../nav.dart';
 import '../store/entry_store.dart';
 import 'check_square.dart';
 import 'finish_aware.dart';
+import 'markdown_view.dart';
 import 'store_scope.dart';
 
 /// 列表形态的一行：待办前面方框点击完成，灵感前面是灯泡；
@@ -24,7 +25,7 @@ class EntryRow extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
     final Color accent = accentFor(entry.id);
     final String title = displayTitle(entry);
-    final String preview = bodyPreview(entry);
+    final ({bool visible, int skip}) preview = previewSlice(entry);
     final bool done = entry.isDone;
     final BorderRadius radius = BorderRadius.circular(16);
     final String timeText = done
@@ -81,13 +82,13 @@ class EntryRow extends StatelessWidget {
                               : scheme.onSurface,
                         ),
                       ),
-                      if (preview.isNotEmpty)
+                      if (preview.visible)
                         Padding(
                           padding: const EdgeInsets.only(top: 3),
-                          child: Text(
-                            preview,
+                          child: MarkdownText(
+                            entry.body,
+                            skipChars: preview.skip,
                             maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                               height: 1.45,

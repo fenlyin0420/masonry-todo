@@ -8,6 +8,7 @@ import '../nav.dart';
 import '../store/entry_store.dart';
 import 'finish_aware.dart';
 import 'hold_to_finish.dart';
+import 'markdown_view.dart';
 import 'store_scope.dart';
 
 /// 首页卡片：待办可以长按 3 秒完成，灵感只作记录。
@@ -26,7 +27,7 @@ class EntryCard extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
     final Color accent = accentFor(entry.id);
     final String title = displayTitle(entry);
-    final String preview = bodyPreview(entry);
+    final ({bool visible, int skip}) preview = previewSlice(entry);
     final bool done = entry.isDone;
     final bool canFinish = entry.isTodo && !done;
     final String timeText = done
@@ -84,13 +85,13 @@ class EntryCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (preview.isNotEmpty)
+                    if (preview.visible)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          preview,
+                        child: MarkdownText(
+                          entry.body,
+                          skipChars: preview.skip,
                           maxLines: 4,
-                          overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             height: 1.5,
                             color: scheme.onSurfaceVariant,

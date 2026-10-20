@@ -6,9 +6,11 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/entry.dart';
 import '../models/entry_text.dart';
+import '../markdown/inline_markdown.dart';
 import 'entry_editor_page.dart';
 import '../store/entry_store.dart';
 import '../store/note_image_store.dart';
+import '../widgets/markdown_view.dart';
 import '../widgets/store_scope.dart';
 
 /// 详情：第一楼是这条内容本身（标题可空），分割线以下是记录想法的楼层。
@@ -262,7 +264,7 @@ class _OriginFloor extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final String title = entry.title.trim();
+    final String title = markdownPlainText(entry.title).trim();
     final String body = entry.body.trim();
     final TextStyle? timeStyle = theme.textTheme.labelSmall?.copyWith(
       color: scheme.onSurfaceVariant,
@@ -282,10 +284,7 @@ class _OriginFloor extends StatelessWidget {
         if (body.isNotEmpty)
           Padding(
             padding: EdgeInsets.only(top: title.isEmpty ? 0 : 8),
-            child: Text(
-              body,
-              style: theme.textTheme.bodyMedium?.copyWith(height: 1.6),
-            ),
+            child: MarkdownView(body, style: theme.textTheme.bodyMedium),
           ),
         if (title.isEmpty && body.isEmpty)
           Text(
@@ -370,62 +369,88 @@ class _ExpandToggle extends StatelessWidget {
 }
 
 /// 评论楼层的正文：超过 [_noteCollapsedHeight] 就按整行截断，点开关展开全文。
-class _CollapsibleText extends StatefulWidget {
-  const _CollapsibleText({required this.text, required this.style});
+class _CollapsibleMarkdown extends StatefulWidget {
+  const _CollapsibleMarkdown({required this.data, required this.style});
 
-  final String text;
+  final String data;
   final TextStyle? style;
 
   @override
-  State<_CollapsibleText> createState() => _CollapsibleTextState();
+  State<_CollapsibleMarkdown> createState() => _CollapsibleMarkdownState();
 }
 
-class _CollapsibleTextState extends State<_CollapsibleText> {
+class _CollapsibleMarkdownState extends State<_CollapsibleMarkdown> {
   bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
+    if (_expanded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          MarkdownView(widget.data, style: widget.style),
+          const SizedBox(height: 2),
+          _ExpandToggle(expanded: true, onTap: _toggle),
+        ],
+      );
+    }
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        // 先按渲染宽度排版一遍拿到每行高度，判断要不要折叠，省得靠首帧回调测量闪一下。
+        // 先按渲染宽度排版一遍纯文本拿到每行高度，判断要不要折叠，省得靠首帧回调测量闪一下。
         if (!constraints.maxWidth.isFinite) {
-          return Text(widget.text, style: widget.style);
+          return MarkdownView(widget.data, style: widget.style);
         }
         final List<LineMetrics> lines = _textLines(
-          widget.text,
+          markdownPlainText(widget.data),
           widget.style,
           constraints.maxWidth,
           MediaQuery.textScalerOf(context),
         );
         final int visibleLines = _collapsedLineCount(lines);
         if (visibleLines >= lines.length) {
-          return Text(widget.text, style: widget.style);
+          return MarkdownView(widget.data, style: widget.style);
         }
 
+        double clipped = 0;
+        for (int i = 0; i < visibleLines; i++) {
+          clipped += lines[i].height;
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            if (_expanded)
-              Text(widget.text, style: widget.style)
-            else
-              // 按整行裁剪：用固定高度硬裁会把最后一行切成上下两半。
-              Text(
-                widget.text,
-                style: widget.style,
-                maxLines: visibleLines,
-                overflow: TextOverflow.clip,
+            // 先让 Markdown 内容按无限高度排完，再用固定高度裁掉：直接塞进限制高度的
+            // 父级会把列表、代码块挤成 RenderFlex 溢出。纯文本量出的行高只是估算，
+            // Markdown 的块间距会把渲染结果撑高，所以底部淡出，不假装恰好裁在行边界上。
+            ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (Rect bounds) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[Colors.black, Colors.black, Colors.transparent],
+                stops: <double>[0, 0.82, 1],
+              ).createShader(bounds),
+              child: ClipRect(
+                child: SizedBox(
+                  height: clipped,
+                  child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    maxHeight: double.infinity,
+                    child: MarkdownView(widget.data, style: widget.style),
+                  ),
+                ),
               ),
-            const SizedBox(height: 2),
-            _ExpandToggle(
-              expanded: _expanded,
-              onTap: () => setState(() => _expanded = !_expanded),
             ),
+            const SizedBox(height: 2),
+            _ExpandToggle(expanded: false, onTap: _toggle),
           ],
         );
       },
     );
   }
+
+  void _toggle() => setState(() => _expanded = !_expanded);
 }
 
 /// 按给定宽度排版一遍，取每一行的高度（与 Text 的排版一致）。
@@ -534,9 +559,9 @@ class _NoteFloor extends StatelessWidget {
       floor: floor,
       children: <Widget>[
         if (note.text.isNotEmpty)
-          _CollapsibleText(
-            text: note.text,
-            style: theme.textTheme.bodyMedium?.copyWith(height: 1.6),
+          _CollapsibleMarkdown(
+            data: note.text,
+            style: theme.textTheme.bodyMedium,
           ),
         if (note.image != null)
           Padding(

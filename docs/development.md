@@ -9,7 +9,8 @@
 - Linux 桌面构建仅用于本地预览 UI，不进入发布产物。
 - 依赖：`path_provider`（本地目录）、`image_picker`（选图）、`image`（压缩图片）、
   `package_info_plus`（版本号）、`dio`（检查更新与下载 APK）、
-  `file_picker`（导出 / 导入备份走系统文件对话框）。
+  `file_picker`（导出 / 导入备份走系统文件对话框）、
+  `flutter_markdown_plus`（详情页的块级 Markdown 渲染）、`markdown`（卡片预览的行内解析）。
 
 ## 目录结构
 
@@ -23,6 +24,8 @@ lib/
   models/
     entry.dart           Entry、Note、EntryKind 与 JSON 序列化
     entry_text.dart      标题推断、正文预览、时间格式化
+  markdown/
+    inline_markdown.dart Markdown 解析成行内片段、去标记的纯文本、片段截取
   store/
     entry_store.dart     全应用唯一数据源（ChangeNotifier）
     entry_storage.dart   快照结构、JSON 文件存储、内存存储
@@ -35,6 +38,7 @@ lib/
   widgets/
     entry_card.dart      瀑布流卡片
     entry_row.dart       列表行
+    markdown_view.dart   行内 Markdown 文本（卡片 / 列表）与块级 Markdown（详情）
     hold_to_finish.dart  长按 3 秒的指针计时
     finish_aware.dart    完成态的降饱和与压暗动画
     masonry_grid.dart    按预估高度分列的双列瀑布流
@@ -191,6 +195,27 @@ class Note {
   初始就是完成态的卡片不会重播。完成标记只靠标题划线与右上角对勾徽标，
   不再在卡面上画斜线。
 
+### Markdown
+
+正文与楼层记录按 Markdown 渲染，标题仍是纯文本。
+
+- 详情页：`MarkdownView`（`flutter_markdown_plus`）出完整的块级结构——标题、
+  有序 / 无序列表、引用、代码块、分割线、表格。样式表由 `markdownStyleSheet`
+  按主题拼出，正文行高与原来手写的 `Text` 一致。
+- 卡片 / 列表：行太窄塞不下结构，`inline_markdown.dart` 先把块级结构压平成一层
+  文本，只保留粗体、斜体、行内代码、删除线、链接这些行内样式，
+  再由 `MarkdownText` 渲染成限行数的富文本。
+- 标题、`bodyPreview`、卡片高度估算用的都是去掉标记后的纯文本
+  （`markdownPlainText`），所以卡片标题不会出现 `**`、`#` 之类的符号。
+- 标题取自正文第一句时，预览按纯文本下标跳过这一句再渲染
+  （`previewSlice` + `sliceRuns`），样式不会串位。
+- 楼层折叠：先用纯文本量出每行高度，决定折叠几行、折多高；再让 Markdown 按
+  无限高度排完，用 `ClipRect` 裁到该高度（直接限制高度会把列表、代码块挤成
+  `RenderFlex` 溢出）。纯文本行高只是估算，块间距会把渲染结果撑高，所以底部叠
+  一层淡出，不假装恰好裁在行边界上。
+- 遵循 CommonMark 的定界规则：`**注意：**这里` 不会加粗（闭定界符前后都是文字，
+  既不右邻接又左邻接），写成 `**注意：** 这里` 才行。
+
 ## 界面结构
 
 - 首页顶部分段控件切换「待办 / 灵感」，标签与展示形态（卡片 / 列表）都持久化。
@@ -253,6 +278,8 @@ flutter test
 - `entry_store_test`：创建 / 完成 / 记录 / 删除、排序、待办与灵感隔离、
   编辑保留楼层、标签与形态持久化、旧版 `todos` 数据兼容。
 - `entry_text_test`：标题回退、正文预览、时间格式化。
+- `markdown_inline_test`：去掉标记后的纯文本、行内语义标记、嵌套样式、片段截取、
+  卡片标题与预览的取句位置。
 - `widget_test`：双标签切换、新建与返回保存、编辑、长按完成、灵感不可完成、
   列表撤销、删除确认。
 - `note_image_test`：图片字段序列化、GIF / 压缩 / 删除文件。
