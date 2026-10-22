@@ -171,6 +171,110 @@ void main() {
     expect(broken.entries.single.title, '跨实例');
   });
 
+  test('过滤器默认收起已完成，开关会落盘', () async {
+    final MemoryEntryStorage storage = MemoryEntryStorage();
+    final EntryStore store = EntryStore(storage);
+    await store.load();
+    final Entry kept = store.create(title: '还没做', now: DateTime(2026, 10, 1));
+    final Entry finished = store.create(
+      title: '做完了',
+      now: DateTime(2026, 10, 2),
+    );
+    store.setDone(finished.id, true, now: DateTime(2026, 10, 3));
+
+    expect(store.showCompleted, isFalse, reason: '默认隐藏已完成');
+    expect(
+      store.visibleEntries.map((Entry entry) => entry.id).toList(),
+      <String>[kept.id],
+    );
+    expect(store.entries, hasLength(2), reason: 'entries 不受过滤器影响');
+    expect(store.doneCount(), 1);
+
+    store.setShowCompleted(true);
+    expect(
+      store.visibleEntries.map((Entry entry) => entry.id).toList(),
+      <String>[kept.id, finished.id],
+      reason: '打开后已完成的排在后面',
+    );
+    await store.flush();
+
+    final EntryStore reopened = EntryStore(storage);
+    await reopened.load();
+    expect(reopened.showCompleted, isTrue);
+    expect(reopened.doneCount(), 1);
+    expect(reopened.doneCount(EntryKind.idea), 0);
+  });
+
+  test('拖动排序把顺序改写成优先级，并且落盘', () async {
+    final MemoryEntryStorage storage = MemoryEntryStorage();
+    final EntryStore store = EntryStore(storage);
+    await store.load();
+    final Entry older = store.create(title: '一', now: DateTime(2026, 10, 1));
+    final Entry middle = store.create(title: '二', now: DateTime(2026, 10, 2));
+    final Entry fresh = store.create(title: '三', now: DateTime(2026, 10, 3));
+    expect(
+      store.visibleEntries.map((Entry entry) => entry.title).toList(),
+      <String>['三', '二', '一'],
+      reason: '新建的排在最前面',
+    );
+
+    // 拖到底：第一项变成最低优先级。
+    store.reorderVisible(0, 2);
+    expect(
+      store.visibleEntries.map((Entry entry) => entry.title).toList(),
+      <String>['二', '一', '三'],
+    );
+    expect(fresh.rank, greaterThan(older.rank));
+
+    // 拖到顶：最后一项变成最高优先级。
+    store.reorderVisible(2, 0);
+    expect(
+      store.visibleEntries.map((Entry entry) => entry.title).toList(),
+      <String>['三', '二', '一'],
+    );
+    await store.flush();
+    final int saves = storage.saveCount;
+    store.reorderVisible(1, 1);
+    await store.flush();
+    expect(storage.saveCount, saves, reason: '没挪动就不写盘');
+    await store.flush();
+
+    final EntryStore reopened = EntryStore(storage);
+    await reopened.load();
+    expect(
+      reopened.visibleEntries.map((Entry entry) => entry.title).toList(),
+      <String>['三', '二', '一'],
+      reason: '优先级跟条目一起存',
+    );
+
+    // 新建的仍然插到最前面。
+    reopened.create(title: '四', now: DateTime(2026, 10, 4));
+    expect(
+      reopened.visibleEntries.map((Entry entry) => entry.title).toList(),
+      <String>['四', '三', '二', '一'],
+    );
+    expect(middle.done, isFalse);
+  });
+
+  test('旧数据没有 rank 时按 0 处理，快照读写会带上它', () {
+    final Entry a = Entry.fromJson(<String, dynamic>{
+      'id': 'a',
+      'title': '早的',
+      'createdAt': '2026-10-01T09:00:00.000',
+    });
+    final Entry b = Entry.fromJson(<String, dynamic>{
+      'id': 'b',
+      'title': '晚的',
+      'createdAt': '2026-10-02T09:00:00.000',
+    });
+    expect(a.rank, 0);
+    expect(b.rank, 0);
+    final AppSnapshot snapshot = AppSnapshot(entries: <Entry>[a, b]);
+    final Map<String, dynamic> json = snapshot.toJson();
+    expect((json['entries'] as List<dynamic>).first, containsPair('rank', 0));
+    expect(AppSnapshot.fromJson(json).showCompleted, isFalse);
+  });
+
   group('旧数据兼容', () {
     test('v1 的 todos 字段、没有 kind 时按待办读取', () {
       final AppSnapshot snapshot = AppSnapshot.fromJson(<String, dynamic>{

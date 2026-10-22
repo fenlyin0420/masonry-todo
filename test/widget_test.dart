@@ -180,6 +180,10 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
     expect(store.activeCount(), 0);
+    // 完成的卡片默认收起来，打开过滤器才看得到完成时间。
+    expect(find.textContaining('完成于'), findsNothing);
+    await tester.tap(find.byTooltip('显示已完成'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('完成于'), findsOneWidget);
   });
 
@@ -402,10 +406,85 @@ void main() {
     await tester.tap(find.bySemanticsLabel('标记为已完成'));
     await tester.pumpAndSettle();
     expect(entry.done, isTrue);
+    expect(find.text('列表里完成我'), findsNothing, reason: '完成的行默认收起来');
 
+    await tester.tap(find.byTooltip('显示已完成'));
+    await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('标记为未完成'));
     await tester.pumpAndSettle();
     expect(entry.done, isFalse);
+
+    await tester.tap(find.byTooltip('隐藏已完成'));
+    await tester.pumpAndSettle();
+    expect(find.text('列表里完成我'), findsOneWidget);
+  });
+
+  testWidgets('过滤器默认收起已完成，全部做完时给出展开入口', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    final Entry entry = store.create(title: '唯一一项');
+    await tester.pumpAndSettle();
+    expect(store.showCompleted, isFalse, reason: '默认隐藏已完成');
+
+    store.setDone(entry.id, true);
+    await tester.pumpAndSettle();
+    expect(find.text('唯一一项'), findsNothing);
+    expect(find.text('未完成的都做完了'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, '显示已完成'));
+    await tester.pumpAndSettle();
+    expect(store.showCompleted, isTrue);
+    expect(find.text('唯一一项'), findsOneWidget);
+  });
+
+  testWidgets('列表拖动排序改变优先级，卡片形态按同一顺序摆放', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    store.create(title: '先建的第一项', now: DateTime(2026, 10, 1));
+    store.create(title: '后建的第二项', now: DateTime(2026, 10, 2));
+    store.create(title: '最后建的第三项', now: DateTime(2026, 10, 3));
+    await tester.pumpAndSettle();
+    expect(
+      store.visibleEntries.map((Entry entry) => entry.title).toList(),
+      <String>['最后建的第三项', '后建的第二项', '先建的第一项'],
+      reason: '新建的排在最前面',
+    );
+
+    await tester.tap(find.byTooltip('列表'));
+    await tester.pumpAndSettle();
+
+    // 第一行按住往下拖过第二行：拖动落点就是新的优先级。
+    final Rect first = tester.getRect(find.text('最后建的第三项'));
+    final Rect second = tester.getRect(find.text('后建的第二项'));
+    final TestGesture gesture = await tester.startGesture(first.center);
+    await tester.pump(const Duration(milliseconds: 600));
+    for (int i = 1; i <= 6; i++) {
+      await gesture.moveTo(
+        Offset(
+          first.center.dx,
+          first.center.dy + (second.center.dy - first.center.dy) * i / 6,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(
+      store.visibleEntries.map((Entry entry) => entry.title).toList(),
+      <String>['后建的第二项', '最后建的第三项', '先建的第一项'],
+      reason: '拖过第二行，让出了第一优先级',
+    );
+
+    // 卡片形态按同一顺序摆：行优先，先左后右，再下一行。
+    await tester.tap(find.byTooltip('卡片'));
+    await tester.pumpAndSettle();
+    final List<Offset> cards = <Offset>[
+      for (final Entry entry in store.visibleEntries)
+        tester.getCenter(find.widgetWithText(EntryCard, entry.title)),
+    ];
+    expect(cards, hasLength(3));
+    expect(cards[0].dx, lessThan(cards[1].dx), reason: '第一个在左列，第二个在右列');
+    expect(cards[2].dx, moreOrLessEquals(cards[0].dx), reason: '第三个回到左列');
+    expect(cards[0].dy, lessThan(cards[2].dy), reason: '第三个在下一行');
   });
 
   testWidgets('列表里误点完成可以撤销', (WidgetTester tester) async {

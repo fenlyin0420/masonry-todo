@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../backup_flow.dart';
+import '../feedback.dart';
 import '../models/entry.dart';
-import '../models/entry_text.dart';
 import '../nav.dart';
 import '../store/entry_storage.dart';
 import '../store/entry_store.dart';
@@ -56,6 +56,11 @@ class HomePage extends StatelessWidget {
             ),
             const SizedBox(width: 4),
           ],
+          if (isTodo)
+            _CompletedFilterButton(
+              shown: store.showCompleted,
+              onChanged: store.setShowCompleted,
+            ),
           _ViewModeToggle(mode: store.viewMode, onChanged: store.setViewMode),
           const _BackupMenu(),
           const SizedBox(width: 8),
@@ -78,13 +83,15 @@ class HomePage extends StatelessWidget {
           ),
           Expanded(
             child: entries.isEmpty
-                ? _EmptyState(kind: kind)
+                ? _EmptyState(
+                    kind: kind,
+                    hiddenDone: store.showCompleted ? 0 : store.doneCount(kind),
+                  )
                 : (store.viewMode == ViewMode.grid
                       ? SingleChildScrollView(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
                           child: MasonryTwoColumn<Entry>(
                             items: entries,
-                            heightEstimator: _estimateCardHeight,
                             itemBuilder: (BuildContext context, Entry entry) =>
                                 EntryCard(
                                   key: ValueKey<String>(entry.id),
@@ -92,19 +99,9 @@ class HomePage extends StatelessWidget {
                                 ),
                           ),
                         )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-                          itemCount: entries.length,
-                          separatorBuilder:
-                              (BuildContext context, int index) =>
-                                  const SizedBox(height: 10),
-                          itemBuilder: (BuildContext context, int index) {
-                            final Entry entry = entries[index];
-                            return EntryRow(
-                              key: ValueKey<String>(entry.id),
-                              entry: entry,
-                            );
-                          },
+                      : _EntryList(
+                          entries: entries,
+                          onReorder: store.reorderVisible,
                         )),
           ),
         ],
@@ -126,17 +123,6 @@ class HomePage extends StatelessWidget {
     final int active = store.activeCount();
     if (active == 0) return '全部完成 · 共 $total 项';
     return '$active 项未完成 · 共 $total 项';
-  }
-
-  /// 卡片高度粗估，只用来把条目分到左右两列：累计更矮的那列拿下一个。
-  static double _estimateCardHeight(Entry entry) {
-    final int titleChars = displayTitle(entry).length;
-    final int previewChars = bodyPreview(entry).length;
-    final int titleLines = (titleChars / 11).ceil().clamp(1, 3);
-    final int previewLines = previewChars == 0
-        ? 0
-        : (previewChars / 15).ceil().clamp(1, 4);
-    return 96 + titleLines * 21 + previewLines * 18;
   }
 }
 
@@ -432,6 +418,83 @@ class _TabButton extends StatelessWidget {
   }
 }
 
+/// 列表形态：整行可以按住拖动，拖完的顺序就是优先级，卡片形态跟着同步。
+/// 用 ReorderableDelayedDragStartListener 而不是默认拖动手柄：手机上长按整行更顺手，
+/// 桌面上换成按住即拖，不然用鼠标长按很别扭。
+class _EntryList extends StatelessWidget {
+  const _EntryList({required this.entries, required this.onReorder});
+
+  final List<Entry> entries;
+  final void Function(int oldIndex, int newIndex) onReorder;
+
+  @override
+  Widget build(BuildContext context) {
+    final TargetPlatform platform = Theme.of(context).platform;
+    final bool touch =
+        platform == TargetPlatform.android || platform == TargetPlatform.iOS;
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+      itemCount: entries.length,
+      buildDefaultDragHandles: false,
+      onReorderItem: (int oldIndex, int newIndex) {
+        playReorderFeedback();
+        onReorder(oldIndex, newIndex);
+      },
+      proxyDecorator: (Widget child, int index, Animation<double> animation) {
+        return AnimatedBuilder(
+          animation: animation,
+          child: child,
+          builder: (BuildContext context, Widget? inner) {
+            final double lift = Curves.easeOut.transform(animation.value);
+            return Material(
+              color: Colors.transparent,
+              elevation: 8 * lift,
+              shadowColor: Colors.black.withValues(alpha: 0.20 * lift),
+              borderRadius: BorderRadius.circular(16),
+              child: Transform.scale(scale: 1 + 0.02 * lift, child: inner),
+            );
+          },
+        );
+      },
+      itemBuilder: (BuildContext context, int index) {
+        final Entry entry = entries[index];
+        final Widget row = Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: EntryRow(entry: entry),
+        );
+        return SizedBox(
+          key: ValueKey<String>(entry.id),
+          child: touch
+              ? ReorderableDelayedDragStartListener(index: index, child: row)
+              : ReorderableDragStartListener(index: index, child: row),
+        );
+      },
+    );
+  }
+}
+
+/// 待办页的过滤器：一键展开 / 收起已完成的条目，默认收起。
+class _CompletedFilterButton extends StatelessWidget {
+  const _CompletedFilterButton({required this.shown, required this.onChanged});
+
+  final bool shown;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: shown ? '隐藏已完成' : '显示已完成',
+      onPressed: () => onChanged(!shown),
+      icon: Icon(
+        shown ? Icons.filter_alt_rounded : Icons.filter_alt_outlined,
+        size: 20,
+        color: shown ? scheme.primary : null,
+      ),
+    );
+  }
+}
+
 class _ViewModeToggle extends StatelessWidget {
   const _ViewModeToggle({required this.mode, required this.onChanged});
 
@@ -518,15 +581,29 @@ class _ModeButton extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.kind});
+  const _EmptyState({required this.kind, this.hiddenDone = 0});
 
   final EntryKind kind;
 
+  /// 被过滤器收起来的已完成条数。非 0 说明不是真没任务，是都被收起来了。
+  final int hiddenDone;
+
   @override
   Widget build(BuildContext context) {
+    final EntryStore store = StoreScope.of(context);
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final bool isTodo = kind == EntryKind.todo;
+    final bool filtered = hiddenDone > 0;
+    final IconData icon = filtered
+        ? Icons.task_alt_rounded
+        : (isTodo
+              ? Icons.dashboard_customize_outlined
+              : Icons.lightbulb_outline_rounded);
+    final String title = filtered ? '未完成的都做完了' : (isTodo ? '还没有待办' : '还没有灵感');
+    final String hint = filtered
+        ? '还有 $hiddenDone 项已完成，收在过滤器里'
+        : (isTodo ? '点右下角「新建待办」记下第一件事' : '点右下角「记灵感」留下第一个念头');
     return Center(
       child: Padding(
         padding: const EdgeInsets.only(bottom: 80),
@@ -534,26 +611,30 @@ class _EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(
-              isTodo
-                  ? Icons.dashboard_customize_outlined
-                  : Icons.lightbulb_outline_rounded,
+              icon,
               size: 52,
               color: scheme.onSurfaceVariant.withValues(alpha: 0.45),
             ),
             const SizedBox(height: 14),
             Text(
-              isTodo ? '还没有待办' : '还没有灵感',
+              title,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 6),
             Text(
-              isTodo ? '点右下角「新建待办」记下第一件事' : '点右下角「记灵感」留下第一个念头',
+              hint,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
             ),
+            if (filtered)
+              TextButton.icon(
+                onPressed: () => store.setShowCompleted(true),
+                icon: const Icon(Icons.filter_alt_rounded, size: 18),
+                label: const Text('显示已完成'),
+              ),
           ],
         ),
       ),

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
@@ -6,6 +8,7 @@ import '../models/entry.dart';
 import '../models/entry_text.dart';
 import '../nav.dart';
 import '../store/entry_store.dart';
+import 'card_fracture.dart';
 import 'finish_aware.dart';
 import 'hold_to_finish.dart';
 import 'markdown_view.dart';
@@ -13,6 +16,8 @@ import 'store_scope.dart';
 
 /// 首页卡片：待办可以长按 3 秒完成，灵感只作记录。
 /// 顶部标题（无标题取正文第一句）、正文预览、底部类型与时间。
+///
+/// 长按期间卡片一路裂开、一路发抖，配合分段震动，按满 3 秒才真正完成。
 class EntryCard extends StatelessWidget {
   const EntryCard({super.key, required this.entry});
 
@@ -41,8 +46,9 @@ class EntryCard extends StatelessWidget {
         store.setDone(entry.id, true);
       },
       onTap: () => openDetail(context, entry.id),
+      onTick: (int step) => playHoldTick(step),
       builder: (BuildContext context, double progress) {
-        return FinishAware(
+        final Widget card = FinishAware(
           done: done,
           borderRadius: radius,
           child: AnimatedContainer(
@@ -137,14 +143,31 @@ class EntryCard extends StatelessWidget {
                     right: 0,
                     child: _DoneBadge(color: accent),
                   ),
-                if (progress > 0)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Center(child: _HoldProgress(value: progress)),
-                    ),
-                  ),
               ],
             ),
+          ),
+        );
+
+        if (progress <= 0) return card;
+        // 越裂越抖：抖动幅度按进度平方长，前一半几乎看不出来，最后一段才明显。
+        final double shake = progress * progress * 2.4;
+        final double phase = progress * math.pi * 26;
+        return Transform.translate(
+          offset: Offset(
+            math.sin(phase) * shake,
+            math.cos(phase * 0.7) * shake,
+          ),
+          child: Stack(
+            children: <Widget>[
+              card,
+              Positioned.fill(
+                child: CardFracture(
+                  seed: entry.id.hashCode,
+                  progress: progress,
+                  borderRadius: radius,
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -213,32 +236,3 @@ class _DoneBadge extends StatelessWidget {
   }
 }
 
-class _HoldProgress extends StatelessWidget {
-  const _HoldProgress({required this.value});
-
-  final double value;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(7),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: scheme.surface.withValues(alpha: 0.92),
-        boxShadow: <BoxShadow>[
-          BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 8),
-        ],
-      ),
-      child: SizedBox(
-        width: 24,
-        height: 24,
-        child: CircularProgressIndicator(
-          value: value,
-          strokeWidth: 2.4,
-          backgroundColor: scheme.primary.withValues(alpha: 0.18),
-        ),
-      ),
-    );
-  }
-}

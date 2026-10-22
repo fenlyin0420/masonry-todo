@@ -1,35 +1,27 @@
 import 'package:flutter/material.dart';
 
-/// 左右两列、彼此不对齐的瀑布流：按预估高度把条目丢进当前更矮的一列。
+/// 左右两列的瀑布流，按条目顺序左一格、右一格地交替摆放：
+/// 阅读顺序是行优先（先左后右，再下一行），和列表的顺序完全一致，
+/// 于是优先级排出来的顺序在两种展示形态下看到的是同一个。
+/// 两列各自往下堆，卡片高度不同，所以行不必对齐。
 class MasonryTwoColumn<T> extends StatelessWidget {
   const MasonryTwoColumn({
     super.key,
     required this.items,
     required this.itemBuilder,
-    required this.heightEstimator,
     this.spacing = 12,
   });
 
   final List<T> items;
   final Widget Function(BuildContext context, T item) itemBuilder;
-  final double Function(T item) heightEstimator;
   final double spacing;
 
   @override
   Widget build(BuildContext context) {
     final List<T> left = <T>[];
     final List<T> right = <T>[];
-    var leftHeight = 0.0;
-    var rightHeight = 0.0;
-    for (final T item in items) {
-      final double height = heightEstimator(item);
-      if (leftHeight <= rightHeight) {
-        left.add(item);
-        leftHeight += height + spacing;
-      } else {
-        right.add(item);
-        rightHeight += height + spacing;
-      }
+    for (int i = 0; i < items.length; i++) {
+      (i.isEven ? left : right).add(items[i]);
     }
 
     Widget column(List<T> columnItems) {

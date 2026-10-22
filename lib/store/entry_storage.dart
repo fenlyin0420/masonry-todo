@@ -9,13 +9,14 @@ import '../models/entry.dart';
 /// 首页展示形态。
 enum ViewMode { grid, list }
 
-/// 落盘的一份完整快照：所有条目 + 两个标签页各自的展示形态 + 当前标签页。
+/// 落盘的一份完整快照：所有条目 + 两个标签页各自的展示形态 + 当前标签页 + 过滤器。
 class AppSnapshot {
   const AppSnapshot({
     required this.entries,
     this.todoViewMode = ViewMode.grid,
     this.ideaViewMode = ViewMode.grid,
     this.kind = EntryKind.todo,
+    this.showCompleted = false,
   });
 
   final List<Entry> entries;
@@ -24,6 +25,9 @@ class AppSnapshot {
   final ViewMode todoViewMode;
   final ViewMode ideaViewMode;
   final EntryKind kind;
+
+  /// 待办页是否显示已完成；默认收起，只在用户主动打开后保留。
+  final bool showCompleted;
 
   ViewMode viewModeOf(EntryKind kind) =>
       kind == EntryKind.idea ? ideaViewMode : todoViewMode;
@@ -54,16 +58,18 @@ class AppSnapshot {
       todoViewMode: split ? _readViewMode(modes[EntryKind.todo.name]) : legacy,
       ideaViewMode: split ? _readViewMode(modes[EntryKind.idea.name]) : legacy,
       kind: entryKindFromJson(json['kind']),
+      showCompleted: json['showCompleted'] == true,
     );
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'version': 3,
+    'version': 4,
     'viewModes': <String, String>{
       EntryKind.todo.name: todoViewMode.name,
       EntryKind.idea.name: ideaViewMode.name,
     },
     'kind': kind.name,
+    'showCompleted': showCompleted,
     'entries': entries.map((entry) => entry.toJson()).toList(),
   };
 }

@@ -27,6 +27,7 @@ class EntryStore extends ChangeNotifier {
   ViewMode _todoViewMode = ViewMode.grid;
   ViewMode _ideaViewMode = ViewMode.grid;
   EntryKind _kind = EntryKind.todo;
+  bool _showCompleted = false;
   bool _loaded = false;
   int _sequence = 0;
   Future<void> _pendingSave = Future<void>.value();
@@ -55,18 +56,28 @@ class EntryStore extends ChangeNotifier {
   /// 首页当前所在标签页。
   EntryKind get kind => _kind;
 
-  /// 当前标签页的条目：待办里未完成的在前（新到旧），已完成的沉底
-  /// （按完成时间新到旧）；灵感按创建时间新到旧。
+  /// 待办页是否把已完成的也列出来。默认收起：完成过的任务不该占着优先级列表。
+  bool get showCompleted => _showCompleted;
+
+  /// 当前标签页的完整顺序：未完成在前（按优先级），已完成的沉底
+  /// （同样按优先级，没排过的按完成时间新到旧）；灵感按优先级、再按创建时间。
+  /// 优先级见 [Entry.rank]。
   List<Entry> get entries {
     final sorted = List<Entry>.of(_entries);
-    sorted.sort((a, b) {
-      if (a.isDone != b.isDone) return a.isDone ? 1 : -1;
-      if (a.isDone) {
-        return (b.doneAt ?? b.createdAt).compareTo(a.doneAt ?? a.createdAt);
-      }
-      return b.createdAt.compareTo(a.createdAt);
-    });
+    sorted.sort(_compare);
     return sorted;
+  }
+
+  static int _compare(Entry a, Entry b) {
+    if (a.isDone != b.isDone) return a.isDone ? 1 : -1;
+    if (a.rank != b.rank) return a.rank.compareTo(b.rank);
+    if (a.isDone) {
+      final int byDone = (b.doneAt ?? b.createdAt).compareTo(
+        a.doneAt ?? a.createdAt,
+      );
+      if (byDone != 0) return byDone;
+    }
+    return b.createdAt.compareTo(a.createdAt);
   }
 
   /// 某一类条目，排序与 [entries] 一致。
@@ -74,8 +85,19 @@ class EntryStore extends ChangeNotifier {
     return entries.where((entry) => entry.kind == kind).toList();
   }
 
-  /// 首页列表要展示的条目（当前标签页）。
-  List<Entry> get visibleEntries => entriesOf(_kind);
+  /// 首页列表要展示的条目（当前标签页），按过滤器筛掉已完成的。
+  /// 灵感没有完成状态，过滤器对它是空操作。
+  List<Entry> get visibleEntries {
+    final List<Entry> list = entriesOf(_kind);
+    if (_showCompleted) return list;
+    return list.where((entry) => !entry.isDone).toList();
+  }
+
+  /// 当前标签页已完成的条数，用来在列表被过滤空的时候说清还藏了多少。
+  int doneCount([EntryKind kind = EntryKind.todo]) {
+    if (kind == EntryKind.idea) return 0;
+    return _entries.where((entry) => entry.isTodo && entry.isDone).length;
+  }
 
   /// 待办里未完成的条数；灵感没有完成状态，恒为 0。
   int activeCount([EntryKind kind = EntryKind.todo]) {
@@ -103,6 +125,7 @@ class EntryStore extends ChangeNotifier {
     _todoViewMode = snapshot.todoViewMode;
     _ideaViewMode = snapshot.ideaViewMode;
     _kind = snapshot.kind;
+    _showCompleted = snapshot.showCompleted;
     _recovery = result.recoveredFrom;
     _loaded = true;
     notifyListeners();
@@ -126,10 +149,21 @@ class EntryStore extends ChangeNotifier {
       title: title.trim(),
       body: body.trim(),
       createdAt: created,
+      rank: _minRank() - 1,
     );
     _entries.add(entry);
     _persistAndNotify();
     return entry;
+  }
+
+  /// 比现有任何条目都小的 rank，新建的排在最上面。
+  int _minRank() {
+    if (_entries.isEmpty) return 0;
+    int min = _entries.first.rank;
+    for (final entry in _entries) {
+      if (entry.rank < min) min = entry.rank;
+    }
+    return min;
   }
 
   /// 改写标题与正文；id、类型、完成状态和楼层记录都不动。
@@ -148,6 +182,7 @@ class EntryStore extends ChangeNotifier {
       createdAt: entry.createdAt,
       done: entry.done,
       doneAt: entry.doneAt,
+      rank: entry.rank,
       notes: entry.notes,
     );
     final index = _entries.indexWhere((item) => item.id == id);
@@ -173,11 +208,44 @@ class EntryStore extends ChangeNotifier {
     todoViewMode: _todoViewMode,
     ideaViewMode: _ideaViewMode,
     kind: _kind,
+    showCompleted: _showCompleted,
   );
 
   void setKind(EntryKind kind) {
     if (_kind == kind) return;
     _kind = kind;
+    _persistAndNotify();
+  }
+
+  /// 切换「显示已完成」。只影响待办页的列表，不改动任何条目。
+  void setShowCompleted(bool value) {
+    if (_showCompleted == value) return;
+    _showCompleted = value;
+    _persistAndNotify();
+  }
+
+  /// 拖动排序：把当前可见列表里第 [oldIndex] 项放到 [newIndex]
+  /// （ReorderableListView 的 onReorderItem 语义，newIndex 已扣掉移出位）。
+  /// 新位置即优先级：从拖完的顺序重新编 rank，被过滤器藏起来的条目
+  /// 保持原相对顺序排在后面。
+  void reorderVisible(int oldIndex, int newIndex) {
+    final List<Entry> shown = List<Entry>.of(visibleEntries);
+    if (oldIndex < 0 || oldIndex >= shown.length) return;
+    int target = newIndex.clamp(0, shown.length - 1);
+    if (target == oldIndex) return;
+
+    final Entry moved = shown.removeAt(oldIndex);
+    shown.insert(target, moved);
+
+    final Set<String> shownIds = shown.map((entry) => entry.id).toSet();
+    final List<Entry> merged = <Entry>[
+      ...shown,
+      for (final Entry entry in entriesOf(_kind))
+        if (!shownIds.contains(entry.id)) entry,
+    ];
+    for (int i = 0; i < merged.length; i++) {
+      merged[i].rank = i;
+    }
     _persistAndNotify();
   }
 

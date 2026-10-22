@@ -49,6 +49,7 @@ class Entry {
     this.body = '',
     this.done = false,
     this.doneAt,
+    this.rank = 0,
     List<Note>? notes,
   }) : notes = notes ?? <Note>[];
 
@@ -60,6 +61,11 @@ class Entry {
 
   bool done;
   DateTime? doneAt;
+
+  /// 手动排出来的优先级：小的在前。新条目的 rank 比现有都小，落在最上面；
+  /// 拖动排序时按新顺序重排。旧数据没有这个字段，全为 0，此时退回按时间排。
+  int rank;
+
   final List<Note> notes;
 
   bool get isTodo => kind == EntryKind.todo;
@@ -88,6 +94,7 @@ class Entry {
       createdAt: parseDate(json['createdAt']),
       done: done,
       doneAt: done && rawDoneAt != null ? parseDate(rawDoneAt) : null,
+      rank: (json['rank'] as num?)?.toInt() ?? 0,
       notes: notes,
     );
   }
@@ -100,6 +107,7 @@ class Entry {
     'createdAt': createdAt.toIso8601String(),
     'done': done,
     'doneAt': doneAt?.toIso8601String(),
+    'rank': rank,
     'notes': notes.map((note) => note.toJson()).toList(),
   };
 }

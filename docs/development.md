@@ -39,9 +39,10 @@ lib/
     entry_card.dart      瀑布流卡片
     entry_row.dart       列表行
     markdown_view.dart   行内 Markdown 文本（卡片 / 列表）与块级 Markdown（详情）
-    hold_to_finish.dart  长按 3 秒的指针计时
+    hold_to_finish.dart  长按 3 秒的指针计时与分段回调
+    card_fracture.dart   长按期间盖在卡片上的裂纹
     finish_aware.dart    完成态的降饱和与压暗动画
-    masonry_grid.dart    按预估高度分列的双列瀑布流
+    masonry_grid.dart    按条目顺序左右交替的双列瀑布流
     check_square.dart    列表行前的完成方框
     store_scope.dart     InheritedNotifier，向子树提供 EntryStore
     update_watch.dart    更新提示、下载进度与安装引导
@@ -67,6 +68,7 @@ class Entry {
   final DateTime createdAt;
   bool done;              // 仅待办使用
   DateTime? doneAt;       // 仅 done == true 时有值
+  int rank;               // 手动排出来的优先级，小的在前
   final List<Note> notes; // 楼层记录，第一条不是 Note
 }
 
@@ -84,8 +86,11 @@ class Note {
   `EntryStore.setDone` 对灵感是空操作，反序列化时也会忽略灵感上的 `done` 字段。
 - 编辑只改 `title` / `body`。`EntryStore.update` 会保留 id、类型、创建时间、
   完成状态与楼层列表；内容没有变化时不写盘。
-- 排序规则：待办未完成在前、按创建时间新到旧；已完成沉底、按完成时间新到旧。
-  灵感按创建时间新到旧。
+- 排序规则：未完成在前，同一组内按 `rank` 从小到大，`rank` 相同（旧数据、
+  从没排过）时退回按创建时间新到旧；已完成的沉底，`rank` 相同再按完成时间新到旧。
+  灵感没有完成状态，等于按 `rank`、再按创建时间。
+- 优先级：新建条目的 `rank` 取现有最小值减一，所以新条目排在最前面；列表里按住
+  拖动会按拖完的顺序重排 `rank`（见 [拖动排序](#拖动排序)）。
 
 ## 持久化
 
@@ -99,13 +104,14 @@ class Note {
 - 保存失败：`EntryStore.saveError` 记住原因并通知，首页提示「保存失败」并给重试，
   写成功一次后自动清空。
 - 进程被杀：切后台、隐藏、退出前触发 `flush()`，排队中的写入不会留给杀手。
-- 快照格式（v3）：
+- 快照格式（v4）：
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "viewModes": { "todo": "grid", "idea": "list" },
   "kind": "todo",
+  "showCompleted": false,
   "entries": [
     {
       "id": "...",
@@ -115,6 +121,7 @@ class Note {
       "createdAt": "2026-10-18T09:12:00.000",
       "done": false,
       "doneAt": null,
+      "rank": -1,
       "notes": [
         { "id": "...", "text": "...", "createdAt": "..." }
       ]
@@ -126,6 +133,8 @@ class Note {
 - 兼容：读取时 `entries` 与旧版 `todos` 字段都认；缺少 `kind` 的条目按待办处理；
   `kind` 缺省为 `todo`。待办页与灵感页各记一套 `viewModes`，互不影响；v2 及更早
   只有一个共用的 `viewMode`，读入时两边都沿用它，缺省为 `grid`。
+  v4 起多了 `rank`（缺省 0）与 `showCompleted`（缺省 false）：旧数据读进来
+  等于「没排过优先级、已完成收起」，排序退回按时间，与升级前看到的一致。
 - 所有写操作由 `EntryStore` 串行排队（`_pendingSave`），测试可用 `flush()` 等待落盘。
 
 ### 图片
@@ -177,13 +186,57 @@ class Note {
 - 按住满 3 秒触发 `onFinish`。
 - 松手、指针取消、位移超过 12 px 都会中止计时。
 - 未触发完成就松手视为一次轻点（进入详情）。
-- 触感由调用方负责，`HoldToFinish` 本身不播放。
+- 触感由调用方负责，`HoldToFinish` 本身不播放，只用 `onTick` 报告进度跨过了
+  `1/tickDivisions` 的哪一段。
+- 完成瞬间条目可能被过滤器从列表里拿走、widget 先被 dispose，而这次按住的指针
+  事件还会继续派发过来：所有指针回调都先看 `mounted`，否则 `_abort` 会撞上已
+  dispose 的 `AnimationController`。
+
+### 碎裂动画
+
+长按期间不再画圆形进度条，改为卡片一路裂开、一路发抖（`card_fracture.dart`）。
+
+- 裂纹图案由 `entry.id.hashCode` 决定，同一条目每次长按裂法一致；坐标归一化到
+  `0..1`，按实际尺寸缩放，卡片宽高变了不用重新生成。
+- 图案 = 一个主撞击点炸开 5–7 条主裂纹（各带一条分叉）+ 一个次撞击点 + 把相邻
+  主裂纹外段连起来的环向裂纹。每条裂纹有自己的露出门槛，不是一起冒出来。
+- 进度推进时裂纹按折线长度一点点长出来（二次缓入缓出），宽度也跟着自己的露出
+  程度加宽；裂缝是「压暗的底色 + 中间一道暗线 + 一侧高光」三层叠出来的，
+  不是简单画一条线。
+- 抖动幅度按进度平方增长，前一半几乎看不出来。整个碎裂只用一次 `CustomPaint`
+  叠在卡片上，卡片内容不复制——没有把卡片切成几块重绘的开销。
+- 震动走 `feedback.dart` 的 `playHoldTick`：每跨过四分之一段一下轻震，最后一段
+  换成 medium，完成瞬间再走 `finishFeedback` 的重-中-轻三段。
+
+### 拖动排序
+
+列表形态里按住整行就能上下拖，拖完的顺序就是优先级，卡片形态按同一顺序摆放。
+
+- 手机用 `ReorderableDelayedDragStartListener`（长按后拖），桌面用
+  `ReorderableDragStartListener`（按住即拖），没有拖动把手。
+- 只接 `onReorderItem`（`onReorder` 自 Flutter 3.41 起废弃），它的 `newIndex`
+  已经扣掉移出位。
+- `EntryStore.reorderVisible` 按拖完的顺序重排 `rank`，被过滤器藏起来的条目
+  保持原相对顺序排在后面；落位时播放一次轻震。
+- 未完成与已完成的分组不受拖动影响：把已完成项拖到未完成项上面，它会落回已完成
+  组里对应的位置。
+
+### 过滤器
+
+待办页右上角的漏斗按钮切换「显示已完成」，默认收起，状态随快照持久化。
+
+- 只影响待办页的列表；灵感没有完成状态，过滤器对它是空操作。
+- `EntryStore.visibleEntries` 负责过滤，`entries` 仍是完整顺序，详情页、计数和
+  备份都不受过滤器影响。
+- 全部做完时列表会空出来，空状态改成「未完成的都做完了」并给一个「显示已完成」
+  按钮，避免看起来像数据没了。
 
 ### 完成反馈
 
 `feedback.dart` 的 `finishFeedback()` 依次播放 heavy → medium → light 三段
 `HapticFeedback`，用系统触感实现，不需要 VIBRATE 权限。完成卡片与列表方框
-两条路径都会调用；触感失败只记录日志，不影响状态变更。
+两条路径都会调用；触感失败只记录日志，不影响状态变更。长按过程中的分段震动
+（`playHoldTick`）与拖动落位的轻震（`playReorderFeedback`）走同一套。
 
 ### 返回即保存
 
@@ -225,8 +278,10 @@ class Note {
 ## 界面结构
 
 - 首页顶部分段控件切换「待办 / 灵感」，标签与展示形态（卡片 / 列表）都持久化。
-- 瀑布流 `MasonryTwoColumn` 用粗估高度把条目分配到当前更矮的一列；
-  预估只影响分列，不影响卡片实际高度。
+- 瀑布流 `MasonryTwoColumn` 按条目顺序左一格、右一格地交替摆放，阅读顺序是
+  行优先（先左后右，再下一行），所以卡片与列表看到的是同一个优先级顺序；
+  两列各自往下堆，卡片高度不同，行不必对齐。
+- 待办页右上角的漏斗按钮切换是否显示已完成，默认收起。
 - 灵感在卡片 / 列表 / 详情里都用灯泡与「灵感」状态胶囊标识。
 
 ## 自动更新（仅 Android）
@@ -281,13 +336,14 @@ flutter test
 
 覆盖范围：
 
-- `entry_store_test`：创建 / 完成 / 记录 / 删除、排序、待办与灵感隔离、
-  编辑保留楼层、标签与形态持久化、旧版 `todos` 数据兼容。
+- `entry_store_test`：创建 / 完成 / 记录 / 删除、排序、过滤器默认值与落盘、
+  拖动排序改写优先级、待办与灵感隔离、编辑保留楼层、标签与形态持久化、
+  旧版 `todos` 数据与缺少 `rank` 的条目兼容。
 - `entry_text_test`：标题回退、正文预览、时间格式化。
 - `markdown_inline_test`：去掉标记后的纯文本、行内语义标记、嵌套样式、片段截取、
   卡片标题与预览的取句位置。
 - `widget_test`：双标签切换、新建与返回保存、编辑、长按完成、灵感不可完成、
-  列表撤销、删除确认。
+  过滤器展开收起、列表拖动排序与卡片顺序同步、列表撤销、删除确认。
 - `note_image_test`：图片字段序列化、GIF / 压缩 / 删除文件。
 - `update_*`：版本比较、Release 解析与选包、下载状态机、更新提示弹窗。
 
