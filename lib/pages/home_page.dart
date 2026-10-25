@@ -361,6 +361,77 @@ class _StorageAlertsState extends State<_StorageAlerts> {
   Widget build(BuildContext context) => widget.child;
 }
 
+/// 等宽格子之间的一块白色指示块。整条轨道里只存在这一块，切换时它从一格滑到
+/// 另一格；换成两个格子各自做背景透明度补间的话，旧的一边要淡 180ms 才消失，
+/// 中途就是一块比纯白暗的半透明方块，看上去像另一边闪了一下灰块。
+class _SlotTrack extends StatelessWidget {
+  const _SlotTrack({
+    required this.children,
+    required this.index,
+    required this.duration,
+    required this.radius,
+    this.inset = 2,
+    this.shrinkWrap = false,
+  });
+
+  /// 每格一个按钮，宽度均分；[shrinkWrap] 时按各自内容宽度排列。
+  final List<Widget> children;
+
+  /// 指示块当前停在第几格。
+  final int index;
+  final Duration duration;
+  final double radius;
+
+  /// 指示块与格子边缘的间隙，让白块和相邻格子留出缝。
+  final double inset;
+  final bool shrinkWrap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final int slots = children.length;
+    final double alignX = slots < 2 ? 0 : index * 2 / (slots - 1) - 1;
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(
+          child: AnimatedAlign(
+            duration: duration,
+            curve: Curves.easeOut,
+            alignment: Alignment(alignX, 0),
+            child: FractionallySizedBox(
+              widthFactor: 1 / slots,
+              heightFactor: 1,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: inset),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(radius),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 5,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Row(
+          mainAxisSize: shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
+          children: <Widget>[
+            for (final Widget child in children)
+              if (shrinkWrap) child else Expanded(child: child),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _KindTabs extends StatelessWidget {
   const _KindTabs({
     required this.kind,
@@ -385,26 +456,25 @@ class _KindTabs extends StatelessWidget {
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Row(
+        child: _SlotTrack(
+          inset: 2,
+          index: kind == EntryKind.todo ? 0 : 1,
+          duration: const Duration(milliseconds: 180),
+          radius: 10,
           children: <Widget>[
-            Expanded(
-              child: _TabButton(
-                icon: Icons.checklist_rounded,
-                label: '待办',
-                count: todoCount == 0 ? null : todoCount,
-                selected: kind == EntryKind.todo,
-                onTap: () => onChanged(EntryKind.todo),
-              ),
+            _TabButton(
+              icon: Icons.checklist_rounded,
+              label: '待办',
+              count: todoCount == 0 ? null : todoCount,
+              selected: kind == EntryKind.todo,
+              onTap: () => onChanged(EntryKind.todo),
             ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: _TabButton(
-                icon: Icons.lightbulb_outline_rounded,
-                label: '灵感',
-                count: ideaCount == 0 ? null : ideaCount,
-                selected: kind == EntryKind.idea,
-                onTap: () => onChanged(EntryKind.idea),
-              ),
+            _TabButton(
+              icon: Icons.lightbulb_outline_rounded,
+              label: '灵感',
+              count: ideaCount == 0 ? null : ideaCount,
+              selected: kind == EntryKind.idea,
+              onTap: () => onChanged(EntryKind.idea),
             ),
           ],
         ),
@@ -442,25 +512,8 @@ class _TabButton extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
+        child: SizedBox(
           height: 38,
-          decoration: BoxDecoration(
-            // 未选中不能用 Colors.transparent：它是透明黑，Color.lerp 不按预乘
-            // 插值，补间中途会变成半透明灰色，切换时底色闪一下。
-            color: scheme.surface.withValues(alpha: selected ? 1 : 0),
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: selected
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 5,
-                      offset: const Offset(0, 1),
-                    ),
-                  ]
-                : null,
-          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
@@ -597,8 +650,12 @@ class _ViewModeToggle extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       padding: const EdgeInsets.all(3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: _SlotTrack(
+        inset: 1,
+        shrinkWrap: true,
+        index: mode == ViewMode.grid ? 0 : 1,
+        duration: const Duration(milliseconds: 160),
+        radius: 9,
         children: <Widget>[
           _ModeButton(
             icon: Icons.grid_view_rounded,
@@ -639,23 +696,8 @@ class _ModeButton extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            // 同 _TabButton：未选中用同色调的零透明，避免补间经过灰色。
-            color: scheme.surface.withValues(alpha: selected ? 1 : 0),
-            borderRadius: BorderRadius.circular(9),
-            boxShadow: selected
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 4,
-                      offset: const Offset(0, 1),
-                    ),
-                  ]
-                : null,
-          ),
           child: Icon(
             icon,
             size: 18,
