@@ -26,7 +26,6 @@ class HomePage extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
     final EntryKind kind = store.kind;
     final bool isTodo = kind == EntryKind.todo;
-    final List<Entry> entries = store.visibleEntries;
     final UpdateController? update = UpdateScope.of(context);
 
     final Widget page = Scaffold(
@@ -73,39 +72,7 @@ class HomePage extends StatelessWidget {
         ),
         label: Text(isTodo ? '新建待办' : '记灵感'),
       ),
-      body: Column(
-        children: <Widget>[
-          _KindTabs(
-            kind: kind,
-            todoCount: store.activeCount(),
-            ideaCount: store.countOf(EntryKind.idea),
-            onChanged: store.setKind,
-          ),
-          Expanded(
-            child: entries.isEmpty
-                ? _EmptyState(
-                    kind: kind,
-                    hiddenDone: store.showCompleted ? 0 : store.doneCount(kind),
-                  )
-                : (store.viewMode == ViewMode.grid
-                      ? SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-                          child: MasonryTwoColumn<Entry>(
-                            items: entries,
-                            itemBuilder: (BuildContext context, Entry entry) =>
-                                EntryCard(
-                                  key: ValueKey<String>(entry.id),
-                                  entry: entry,
-                                ),
-                          ),
-                        )
-                      : _EntryList(
-                          entries: entries,
-                          onReorder: store.reorderVisible,
-                        )),
-          ),
-        ],
-      ),
+      body: const _KindPager(),
     );
     if (update == null) return _StorageAlerts(child: page);
     return _StorageAlerts(
@@ -123,6 +90,126 @@ class HomePage extends StatelessWidget {
     final int active = store.activeCount();
     if (active == 0) return '全部完成 · 共 $total 项';
     return '$active 项未完成 · 共 $total 项';
+  }
+}
+
+/// 标签栏 + 左右滑动的两页（待办 / 灵感）。标签点击与滑动共用同一个页码，
+/// 当前页写回 store，标题、悬浮按钮跟着变。
+class _KindPager extends StatefulWidget {
+  const _KindPager();
+
+  static const List<EntryKind> _kinds = <EntryKind>[
+    EntryKind.todo,
+    EntryKind.idea,
+  ];
+
+  @override
+  State<_KindPager> createState() => _KindPagerState();
+}
+
+class _KindPagerState extends State<_KindPager> {
+  PageController? _controller;
+  int _index = 0;
+  EntryStore? _store;
+
+  static const Duration _slide = Duration(milliseconds: 260);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final EntryStore store = StoreScope.of(context);
+    if (!identical(store, _store)) {
+      _store?.removeListener(_syncFromStore);
+      _store = store..addListener(_syncFromStore);
+    }
+    // 首次建树时把页码对到 store 记住的标签页（上次退出时停在哪页），
+    // 控制器得先拿到正确的初始页，不然会先闪一下待办。
+    if (_controller == null) {
+      final int saved = _KindPager._kinds.indexOf(store.kind);
+      _index = saved < 0 ? 0 : saved;
+      _controller = PageController(initialPage: _index);
+    }
+  }
+
+  @override
+  void dispose() {
+    _store?.removeListener(_syncFromStore);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  /// 标签按钮走的是 store.setKind，这里接住它把页翻过去。
+  void _syncFromStore() {
+    final EntryStore? store = _store;
+    if (store == null) return;
+    final int index = _KindPager._kinds.indexOf(store.kind);
+    if (index < 0 || index == _index) return;
+    setState(() => _index = index);
+    final PageController? controller = _controller;
+    if (controller != null && controller.hasClients) {
+      controller.animateToPage(index, duration: _slide, curve: Curves.easeOut);
+    }
+  }
+
+  void _onPageChanged(int index) {
+    setState(() => _index = index);
+    _store?.setKind(_KindPager._kinds[index]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        _KindTabs(
+          kind: _KindPager._kinds[_index],
+          todoCount: _store?.activeCount() ?? 0,
+          ideaCount: _store?.countOf(EntryKind.idea) ?? 0,
+          onChanged: (EntryKind kind) => _store?.setKind(kind),
+        ),
+        Expanded(
+          child: PageView(
+            controller: _controller,
+            onPageChanged: _onPageChanged,
+            children: const <Widget>[
+              _KindPage(kind: EntryKind.todo),
+              _KindPage(kind: EntryKind.idea),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 一页的内容：空状态、卡片墙或可拖动排序的列表。
+class _KindPage extends StatelessWidget {
+  const _KindPage({required this.kind});
+
+  final EntryKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final EntryStore store = StoreScope.of(context);
+    final List<Entry> entries = store.visibleEntriesOf(kind);
+    if (entries.isEmpty) {
+      return _EmptyState(
+        kind: kind,
+        hiddenDone: store.showCompleted ? 0 : store.doneCount(kind),
+      );
+    }
+    if (store.viewModeOf(kind) == ViewMode.grid) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+        child: MasonryTwoColumn<Entry>(
+          items: entries,
+          itemBuilder: (BuildContext context, Entry entry) => EntryCard(
+            key: ValueKey<String>(entry.id),
+            entry: entry,
+          ),
+        ),
+      );
+    }
+    return _EntryList(entries: entries, onReorder: store.reorderVisible);
   }
 }
 

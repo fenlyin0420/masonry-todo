@@ -569,6 +569,26 @@ void main() {
     expect(find.byType(EntryRow), findsOneWidget);
   });
 
+  testWidgets('左右滑动切换待办与灵感', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    store.create(title: '买牛奶');
+    store.create(kind: EntryKind.idea, title: '一个念头');
+    await tester.pumpAndSettle();
+    expect(find.text('买牛奶'), findsOneWidget);
+
+    await tester.fling(find.byType(PageView), const Offset(-400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(store.kind, EntryKind.idea);
+    expect(find.text('一个念头'), findsOneWidget);
+    expect(find.text('买牛奶'), findsNothing);
+
+    await tester.fling(find.byType(PageView), const Offset(400, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(store.kind, EntryKind.todo);
+    expect(find.text('买牛奶'), findsOneWidget);
+    expect(find.text('一个念头'), findsNothing);
+  });
+
   testWidgets('首页备份菜单里有导出与导入', (WidgetTester tester) async {
     await pumpApp(tester);
     await tester.tap(find.byTooltip('备份'));

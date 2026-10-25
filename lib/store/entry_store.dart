@@ -87,9 +87,12 @@ class EntryStore extends ChangeNotifier {
 
   /// 首页列表要展示的条目（当前标签页），按过滤器筛掉已完成的。
   /// 灵感没有完成状态，过滤器对它是空操作。
-  List<Entry> get visibleEntries {
-    final List<Entry> list = entriesOf(_kind);
-    if (_showCompleted) return list;
+  List<Entry> get visibleEntries => visibleEntriesOf(_kind);
+
+  /// 指定标签页要展示的条目，规则同 [visibleEntries]。
+  List<Entry> visibleEntriesOf(EntryKind kind) {
+    final List<Entry> list = entriesOf(kind);
+    if (_showCompleted || kind == EntryKind.idea) return list;
     return list.where((entry) => !entry.isDone).toList();
   }
 
