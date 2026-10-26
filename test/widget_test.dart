@@ -153,7 +153,10 @@ void main() {
     expect(find.textContaining('完成 A', findRichText: true), findsOneWidget);
     expect(find.textContaining('完成 B', findRichText: true), findsOneWidget);
     expect(find.textContaining('引用一句', findRichText: true), findsOneWidget);
-    expect(find.textContaining('flutter test', findRichText: true), findsOneWidget);
+    expect(
+      find.textContaining('flutter test', findRichText: true),
+      findsOneWidget,
+    );
     expect(find.textContaining('作废', findRichText: true), findsOneWidget);
     // 标记符号不该出现在页面上了。
     expect(find.textContaining('#', findRichText: true), findsNothing);
@@ -255,6 +258,36 @@ void main() {
     expect(store.entries.single.notes.length, 1);
   });
 
+  testWidgets('长按楼层可以改文字，也可以删掉这一层', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    final Entry entry = store.create(title: '写周报');
+    store.addNote(entry.id, '原来那句');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('写周报'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('原来那句'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑这一层'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '改好了');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('改好了'), findsOneWidget);
+    expect(entry.notes.single.text, '改好了');
+
+    await tester.longPress(find.text('改好了'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除这一层'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(entry.notes, isEmpty);
+    expect(store.entries.single.notes, isEmpty);
+  });
+
   testWidgets('评论楼层过长时按整行折叠，点「查看详情」展开', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '长评论');
@@ -276,7 +309,10 @@ void main() {
       );
       return clips
           .evaluate()
-          .map((Element element) => tester.getSize(find.byWidget(element.widget)).height)
+          .map(
+            (Element element) =>
+                tester.getSize(find.byWidget(element.widget)).height,
+          )
           .reduce(min);
     }
 

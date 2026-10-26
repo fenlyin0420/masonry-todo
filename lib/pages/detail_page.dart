@@ -157,6 +157,112 @@ class _DetailPageState extends State<DetailPage> {
     }
   }
 
+  /// 长按楼层：改这一层，或删掉这一层。
+  Future<void> _showNoteActions(Note note) async {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final String? action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('编辑这一层'),
+              onTap: () => Navigator.of(context).pop('edit'),
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline_rounded, color: scheme.error),
+              title: Text('删除这一层', style: TextStyle(color: scheme.error)),
+              onTap: () => Navigator.of(context).pop('delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'edit') {
+      await _editNote(note);
+    } else if (action == 'delete') {
+      await _deleteNote(note);
+    }
+  }
+
+  Future<void> _editNote(Note note) async {
+    final _NoteDraft? draft = await showModalBottomSheet<_NoteDraft>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (BuildContext context) =>
+          _NoteEditorSheet(note: note, images: _images),
+    );
+    if (draft == null || !mounted) return;
+    final EntryStore store = StoreScope.of(context);
+
+    String? imageName = note.image;
+    bool imageChanged = false;
+    if (draft.newImage != null) {
+      try {
+        imageName = await _images.store(draft.newImage!);
+        imageChanged = true;
+      } catch (error) {
+        debugPrint('图片保存失败：$error');
+        _snack('图片太大或无法保存，这次的改动只保存了文字');
+      }
+    } else if (draft.removeImage) {
+      imageName = null;
+      imageChanged = true;
+    }
+
+    final Note? updated = store.updateNote(
+      widget.entryId,
+      note.id,
+      text: draft.text,
+      image: imageName,
+      imageChanged: imageChanged,
+    );
+    if (!mounted) return;
+    if (updated == null) {
+      // 文字和图片都空了：不落库，顺手清掉刚存进来的新图。
+      if (draft.newImage != null && imageName != null) {
+        unawaited(_images.deleteFile(imageName));
+      }
+      _snack('这一层不能空着，写点内容或留张图');
+      return;
+    }
+    if (imageChanged && note.image != null) {
+      unawaited(_images.deleteFile(note.image!));
+    }
+  }
+
+  Future<void> _deleteNote(Note note) async {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('删除这一层？'),
+        content: const Text('这一层的内容和图片会被删掉，无法恢复。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: scheme.error),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final Note? removed = StoreScope.of(context)
+        .removeNote(widget.entryId, note.id);
+    final String? imageName = removed?.image;
+    if (imageName != null) unawaited(_images.deleteFile(imageName));
+  }
+
   void _snack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -225,6 +331,7 @@ class _DetailPageState extends State<DetailPage> {
                     floor: i + 2,
                     note: entry.notes[i],
                     images: _images,
+                    onLongPress: () => _showNoteActions(entry.notes[i]),
                   ),
               ],
             ),
@@ -247,8 +354,7 @@ class _DetailPageState extends State<DetailPage> {
   Future<void> _openEditor(Entry entry) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) =>
-            EntryEditorPage(entryId: entry.id),
+        builder: (BuildContext context) => EntryEditorPage(entryId: entry.id),
       ),
     );
   }
@@ -489,9 +595,7 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final bool done = entry.isDone;
-    final String label = !entry.isTodo
-        ? '灵感'
-        : (done ? '已完成' : '进行中');
+    final String label = !entry.isTodo ? '灵感' : (done ? '已完成' : '进行中');
     final Color color = !entry.isTodo
         ? scheme.tertiary
         : (done ? scheme.onSurfaceVariant : scheme.primary);
@@ -546,39 +650,255 @@ class _NoteFloor extends StatelessWidget {
     required this.floor,
     required this.note,
     required this.images,
+    required this.onLongPress,
   });
 
   final int floor;
   final Note note;
   final NoteImageStore images;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return _FloorShell(
-      floor: floor,
-      children: <Widget>[
-        if (note.text.isNotEmpty)
-          _CollapsibleMarkdown(
-            data: note.text,
-            style: theme.textTheme.bodyMedium,
-          ),
-        if (note.image != null)
-          Padding(
-            padding: EdgeInsets.only(top: note.text.isEmpty ? 0 : 8),
-            child: _NoteImage(name: note.image!, images: images),
-          ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            formatMinute(note.createdAt),
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: onLongPress,
+      child: _FloorShell(
+        floor: floor,
+        children: <Widget>[
+          if (note.text.isNotEmpty)
+            _CollapsibleMarkdown(
+              data: note.text,
+              style: theme.textTheme.bodyMedium,
+            ),
+          if (note.image != null)
+            Padding(
+              padding: EdgeInsets.only(top: note.text.isEmpty ? 0 : 8),
+              child: _NoteImage(name: note.image!, images: images),
+            ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              formatMinute(note.createdAt),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 编辑楼层的结果：正文、是否换了新图、是否要求去掉原图。
+class _NoteDraft {
+  const _NoteDraft({
+    required this.text,
+    this.newImage,
+    this.removeImage = false,
+  });
+
+  final String text;
+  final File? newImage;
+  final bool removeImage;
+}
+
+/// 编辑一层：改文字，顺带换图或去掉图。
+class _NoteEditorSheet extends StatefulWidget {
+  const _NoteEditorSheet({required this.note, required this.images});
+
+  final Note note;
+  final NoteImageStore images;
+
+  @override
+  State<_NoteEditorSheet> createState() => _NoteEditorSheetState();
+}
+
+class _NoteEditorSheetState extends State<_NoteEditorSheet> {
+  final TextEditingController _text = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+
+  /// 原有图片的本地文件；没有图时为 null。
+  Future<File>? _existingFile;
+
+  /// 新选的图；为空时仍显示 [_existingFile]，除非已被移除。
+  File? _newImage;
+  bool _removeImage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _text.text = widget.note.text;
+    final String? name = widget.note.image;
+    _existingFile = name == null ? null : widget.images.fileFor(name);
+    _text.addListener(() {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  bool get _keepsExistingImage =>
+      widget.note.image != null && !_removeImage && _newImage == null;
+
+  bool get _hasImage => _newImage != null || _keepsExistingImage;
+
+  Future<void> _pickImage() async {
+    try {
+      final XFile? picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
+      if (picked == null || !mounted) return;
+      setState(() {
+        _newImage = File(picked.path);
+        _removeImage = false;
+      });
+    } catch (error) {
+      debugPrint('选择图片失败：$error');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('选择图片失败，可能没有相册权限'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  void _removeCurrentImage() {
+    setState(() {
+      _newImage = null;
+      _removeImage = true;
+    });
+  }
+
+  void _save() {
+    if (!_hasImage && _text.text.trim().isEmpty) return;
+    Navigator.of(context).pop(
+      _NoteDraft(
+        text: _text.text,
+        newImage: _newImage,
+        removeImage: _removeImage,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool canSave = _hasImage || _text.text.trim().isNotEmpty;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 4,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text('编辑这一层', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _text,
+            autofocus: true,
+            minLines: 3,
+            maxLines: 8,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            decoration: const InputDecoration(
+              hintText: '写点内容…',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_hasImage)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 72,
+                      height: 72,
+                      child: _newImage != null
+                          ? Image.file(_newImage!, fit: BoxFit.cover)
+                          : FutureBuilder<File>(
+                              future: _existingFile,
+                              builder:
+                                  (
+                                    BuildContext context,
+                                    AsyncSnapshot<File> snapshot,
+                                  ) {
+                                    final File? file = snapshot.data;
+                                    if (file == null) {
+                                      return Container(
+                                        color: scheme.surfaceContainerHighest,
+                                        alignment: Alignment.center,
+                                        child: Icon(
+                                          Icons.broken_image_outlined,
+                                          size: 18,
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                      );
+                                    }
+                                    return Image.file(file, fit: BoxFit.cover);
+                                  },
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _newImage != null ? '保存后换成这张图' : '保存时保留这张图',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '移除图片',
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    onPressed: _removeCurrentImage,
+                  ),
+                ],
+              ),
+            ),
+          Row(
+            children: <Widget>[
+              TextButton.icon(
+                onPressed: _pickImage,
+                icon: const Icon(Icons.add_photo_alternate_rounded, size: 18),
+                label: Text(_hasImage ? '换一张图' : '加一张图'),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton(
+                onPressed: canSave ? _save : null,
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

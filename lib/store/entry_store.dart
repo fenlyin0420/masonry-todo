@@ -15,7 +15,8 @@ class ImportOutcome {
   final int addedNotes;
   final int updatedEntries;
 
-  bool get isEmpty => addedEntries == 0 && addedNotes == 0 && updatedEntries == 0;
+  bool get isEmpty =>
+      addedEntries == 0 && addedNotes == 0 && updatedEntries == 0;
 }
 
 /// 全应用唯一的数据源。任何改动都立即通知 UI，并异步落盘。
@@ -277,6 +278,45 @@ class EntryStore extends ChangeNotifier {
     return note;
   }
 
+  /// 改一层的正文与图片：图片只在 [imageChanged] 为真时才动，此时 [image] 为 null 表示去掉图。
+  /// 改完文字与图片都为空时拒绝，返回 null 表示没改动。
+  Note? updateNote(
+    String entryId,
+    String noteId, {
+    required String text,
+    String? image,
+    bool imageChanged = false,
+  }) {
+    final entry = byId(entryId);
+    if (entry == null) return null;
+    final int index = entry.notes.indexWhere((Note note) => note.id == noteId);
+    if (index < 0) return null;
+    final Note before = entry.notes[index];
+    final String content = text.trim();
+    final String? nextImage = imageChanged ? image : before.image;
+    if (content.isEmpty && nextImage == null) return null;
+    final Note updated = Note(
+      id: before.id,
+      text: content,
+      createdAt: before.createdAt,
+      image: nextImage,
+    );
+    entry.notes[index] = updated;
+    _persistAndNotify();
+    return updated;
+  }
+
+  /// 删掉一层，返回被删的那一层：调用方据此清理它的图片文件。
+  Note? removeNote(String entryId, String noteId) {
+    final entry = byId(entryId);
+    if (entry == null) return null;
+    final int index = entry.notes.indexWhere((Note note) => note.id == noteId);
+    if (index < 0) return null;
+    final Note removed = entry.notes.removeAt(index);
+    _persistAndNotify();
+    return removed;
+  }
+
   void delete(String entryId) {
     final before = _entries.length;
     _entries.removeWhere((entry) => entry.id == entryId);
@@ -325,9 +365,7 @@ class EntryStore extends ChangeNotifier {
 
       // 同一条目本地是用户后来改的，标题正文本地为准；只把本地缺的补上。
       bool touched = false;
-      final Set<String> known = local.notes
-          .map((Note note) => note.id)
-          .toSet();
+      final Set<String> known = local.notes.map((Note note) => note.id).toSet();
       for (final Note note in source.notes) {
         if (!known.add(note.id)) continue;
         local.notes.add(note);

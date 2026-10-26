@@ -109,6 +109,70 @@ void main() {
     expect(store.byId(entry.id)!.notes, isEmpty);
   });
 
+  test('楼层可以改文字、换图、删图，也可以整层删掉', () async {
+    final MemoryEntryStorage storage = MemoryEntryStorage();
+    final EntryStore store = EntryStore(storage);
+    await store.load();
+    final Entry entry = store.create(title: '有标题');
+    final Note note = store.addNote(
+      entry.id,
+      '原来那句',
+      image: 'a.png',
+      now: DateTime(2026, 10, 18, 9, 32),
+    )!;
+
+    final Note? edited = store.updateNote(entry.id, note.id, text: '  改好了  ');
+    await store.flush();
+    expect(edited!.text, '改好了');
+    expect(edited.image, 'a.png', reason: '没动图片就原样留着');
+    expect(edited.createdAt, note.createdAt, reason: '改文字不挪时间');
+    expect(storage.snapshot.entries.single.notes.single.text, '改好了');
+
+    store.updateNote(
+      entry.id,
+      note.id,
+      text: '换图',
+      image: 'b.png',
+      imageChanged: true,
+    );
+    expect(entry.notes.single.image, 'b.png');
+
+    store.updateNote(entry.id, note.id, text: '纯文字', imageChanged: true);
+    expect(entry.notes.single.image, isNull, reason: 'imageChanged 且无图就是删图');
+
+    expect(
+      store.updateNote(entry.id, note.id, text: '   '),
+      isNull,
+      reason: '没有图的时候不能把文字清空',
+    );
+    expect(entry.notes.single.text, '纯文字');
+
+    expect(
+      store.updateNote(
+        entry.id,
+        note.id,
+        text: '某一层',
+        image: 'c.png',
+        imageChanged: true,
+      ),
+      isNotNull,
+    );
+    expect(
+      store.updateNote(entry.id, note.id, text: '  ', imageChanged: true),
+      isNull,
+      reason: '文字和图片都空了不允许',
+    );
+    expect(entry.notes.single.text, '某一层');
+    expect(entry.notes.single.image, 'c.png');
+
+    final Note? removed = store.removeNote(entry.id, note.id);
+    await store.flush();
+    expect(removed!.image, 'c.png');
+    expect(entry.notes, isEmpty);
+    expect(storage.snapshot.entries.single.notes, isEmpty);
+    expect(store.removeNote(entry.id, note.id), isNull);
+  });
+
   test('待办与灵感的展示形态各记各的', () async {
     final MemoryEntryStorage storage = MemoryEntryStorage();
     final EntryStore store = EntryStore(storage);
@@ -136,9 +200,7 @@ void main() {
   });
 
   test('JSON 文件存储可跨实例读回，坏文件会被备份', () async {
-    final Directory dir = await Directory.systemTemp.createTemp(
-      'shiji_test',
-    );
+    final Directory dir = await Directory.systemTemp.createTemp('shiji_test');
     addTearDown(() => dir.delete(recursive: true));
     final FileEntryStorage storage = FileEntryStorage(
       directoryProvider: () async => dir,
