@@ -19,6 +19,7 @@ lib/
   main.dart              入口：加载本地数据、装配更新控制器
   app_theme.dart         主题、卡片强调色与完成态底色
   feedback.dart          完成待办时的触感序列
+  finish_hint.dart       没写感想就想完成时的提示条幅
   nav.dart               详情 / 新建 / 编辑的路由封装
   backup_flow.dart       导出 / 导入备份的文件对话框与提示
   models/
@@ -84,6 +85,9 @@ class Note {
 
 - 灵感永远没有完成状态。`Entry.isDone` 只在 `kind == todo && done` 时为真，
   `EntryStore.setDone` 对灵感是空操作，反序列化时也会忽略灵感上的 `done` 字段。
+- 完成要求先写过感想。`Entry.canComplete` = 待办且 `notes` 非空；`setDone(…, true)`
+  在楼层为空时直接拒绝并返回 `false`，由调用方弹提示（`finish_hint.dart`）。
+  导入合并不走 `setDone`，手机上已完成的条目不会因为缺楼层被改回未完成。
 - 编辑只改 `title` / `body`。`EntryStore.update` 会保留 id、类型、创建时间、
   完成状态与楼层列表；内容没有变化时不写盘。
 - 排序规则：未完成在前，同一组内按 `rank` 从小到大，`rank` 相同（旧数据、
@@ -184,6 +188,8 @@ class Note {
 指针路径失效时，`onTapUp` 不保证到达，计时器会无人取消地跑完。
 
 - 按住满 3 秒触发 `onFinish`。
+- `onFinish` 里先看 `entry.canComplete`：还没写过感想就只弹提示条幅（`finish_hint.dart`，
+  含一个「去写」直接进详情），不动完成状态；列表方框走同一条提示。
 - 松手、指针取消、位移超过 12 px 都会中止计时。
 - 未触发完成就松手视为一次轻点（进入详情）。
 - 触感由调用方负责，`HoldToFinish` 本身不播放，只用 `onTick` 报告进度跨过了

@@ -42,6 +42,18 @@ void playReorderFeedback() {
   unawaited(_safe(HapticFeedback.selectionClick));
 }
 
+/// 完成被拦下时的一记短促提醒：两下重击，和完成的“重击后两轻击”区分开，
+/// 手感上就是“不行”。
+void playRejectFeedback() {
+  unawaited(
+    _safe(() async {
+      await HapticFeedback.heavyImpact();
+      await Future<void>.delayed(const Duration(milliseconds: 90));
+      await HapticFeedback.heavyImpact();
+    }),
+  );
+}
+
 /// 触感失败只记日志：没有马达或通道不可用时不该影响功能。
 Future<void> _safe(Future<void> Function() impact) async {
   try {

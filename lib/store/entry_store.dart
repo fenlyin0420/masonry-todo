@@ -254,12 +254,15 @@ class EntryStore extends ChangeNotifier {
   }
 
   /// 灵感没有完成状态，调用会被忽略。
-  void setDone(String entryId, bool done, {DateTime? now}) {
+  /// 完成前必须先写一条感想：没有楼层的待办会被拒绝，返回 false，由调用方提示。
+  bool setDone(String entryId, bool done, {DateTime? now}) {
     final entry = byId(entryId);
-    if (entry == null || !entry.isTodo || entry.done == done) return;
+    if (entry == null || !entry.isTodo || entry.done == done) return false;
+    if (done && !entry.canComplete) return false;
     entry.done = done;
     entry.doneAt = done ? (now ?? DateTime.now()) : null;
     _persistAndNotify();
+    return true;
   }
 
   Note? addNote(String entryId, String text, {String? image, DateTime? now}) {

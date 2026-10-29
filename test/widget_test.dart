@@ -168,6 +168,7 @@ void main() {
   testWidgets('长按 3 秒把卡片标记完成', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '长按完成我');
+    store.addNote(entry.id, '做完才发现其实很简单');
     await tester.pumpAndSettle();
     expect(entry.done, isFalse);
 
@@ -188,6 +189,27 @@ void main() {
     await tester.tap(find.byTooltip('显示已完成'));
     await tester.pumpAndSettle();
     expect(find.textContaining('完成于'), findsOneWidget);
+  });
+
+  testWidgets('没写感想时长按完成会被拦下并给出提示', (WidgetTester tester) async {
+    final EntryStore store = await pumpApp(tester);
+    final Entry entry = store.create(title: '先写感想');
+    await tester.pumpAndSettle();
+
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(find.text('先写感想')),
+    );
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pump(const Duration(milliseconds: 3200));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(entry.done, isFalse, reason: '没有楼层不能完成');
+    expect(find.text('先写一条感想，再把它完成'), findsOneWidget);
+
+    await tester.tap(find.text('去写'));
+    await tester.pumpAndSettle();
+    expect(find.text('待办详情'), findsOneWidget);
   });
 
   testWidgets('灵感卡片长按不会被标记完成', (WidgetTester tester) async {
@@ -416,6 +438,7 @@ void main() {
     final EntryStore store = EntryStore(MemoryEntryStorage());
     await store.load();
     final Entry entry = store.create(title: 'test', body: '特');
+    store.addNote(entry.id, '一条感想');
     store.setDone(entry.id, true);
 
     await tester.pumpWidget(
@@ -432,6 +455,7 @@ void main() {
   testWidgets('列表模式点方框完成，再点取消完成', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '列表里完成我');
+    store.addNote(entry.id, '记一下');
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('列表'));
@@ -458,6 +482,7 @@ void main() {
   testWidgets('过滤器默认收起已完成，全部做完时给出展开入口', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '唯一一项');
+    store.addNote(entry.id, '记一下');
     await tester.pumpAndSettle();
     expect(store.showCompleted, isFalse, reason: '默认隐藏已完成');
 
@@ -526,6 +551,7 @@ void main() {
   testWidgets('列表里误点完成可以撤销', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     final Entry entry = store.create(title: '误点就撤销');
+    store.addNote(entry.id, '记一下');
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('列表'));
     await tester.pumpAndSettle();
@@ -543,6 +569,7 @@ void main() {
   testWidgets('撤销条幅到时会自己消失，不会赖在屏幕上', (WidgetTester tester) async {
     final EntryStore store = await pumpApp(tester);
     store.create(title: '完成就该收条幅');
+    store.addNote(store.entries.single.id, '记一下');
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('列表'));
     await tester.pumpAndSettle();

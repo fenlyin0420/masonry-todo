@@ -15,6 +15,7 @@ void main() {
     await store.flush();
     expect(storage.snapshot.entries.single.title, '写周报');
 
+    store.addNote(entry.id, '先记一笔', now: DateTime(2026, 10, 18, 9, 20));
     store.setDone(entry.id, true, now: DateTime(2026, 10, 18, 9, 30));
     await store.flush();
     expect(storage.snapshot.entries.single.done, isTrue);
@@ -25,11 +26,25 @@ void main() {
 
     store.addNote(entry.id, '其实可以下周再做', now: DateTime(2026, 10, 18, 9, 32));
     await store.flush();
-    expect(storage.snapshot.entries.single.notes.single.text, '其实可以下周再做');
+    expect(storage.snapshot.entries.single.notes.last.text, '其实可以下周再做');
 
     store.delete(entry.id);
     await store.flush();
     expect(storage.snapshot.entries, isEmpty);
+  });
+
+  test('没写过感想的待办不允许完成', () async {
+    final EntryStore store = EntryStore(MemoryEntryStorage());
+    await store.load();
+    final Entry entry = store.create(title: '直接想勾掉');
+
+    expect(store.setDone(entry.id, true), isFalse, reason: '先写感想');
+    expect(entry.done, isFalse);
+    expect(entry.doneAt, isNull);
+
+    store.addNote(entry.id, '想法');
+    expect(store.setDone(entry.id, true), isTrue);
+    expect(entry.done, isTrue);
   });
 
   test('列表顺序：未完成在前，已完成的沉底', () async {
@@ -37,6 +52,7 @@ void main() {
     await store.load();
     final Entry old = store.create(title: '旧的', now: DateTime(2026, 10, 1));
     final Entry fresh = store.create(title: '新的', now: DateTime(2026, 10, 2));
+    store.addNote(fresh.id, '做完了', now: DateTime(2026, 10, 2, 1));
     store.setDone(fresh.id, true, now: DateTime(2026, 10, 3));
 
     expect(store.entries.map((entry) => entry.title).toList(), <String>[
@@ -242,6 +258,7 @@ void main() {
       title: '做完了',
       now: DateTime(2026, 10, 2),
     );
+    store.addNote(finished.id, '收尾了', now: DateTime(2026, 10, 2, 1));
     store.setDone(finished.id, true, now: DateTime(2026, 10, 3));
 
     expect(store.showCompleted, isFalse, reason: '默认隐藏已完成');

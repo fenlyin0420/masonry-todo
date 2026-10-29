@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
 import '../feedback.dart';
+import '../finish_hint.dart';
 import '../models/entry.dart';
 import '../models/entry_text.dart';
 import '../nav.dart';
@@ -42,6 +43,10 @@ class EntryCard extends StatelessWidget {
     return HoldToFinish(
       enabled: canFinish,
       onFinish: () {
+        if (!entry.canComplete) {
+          showNoteRequiredHint(context, entry.id);
+          return;
+        }
         playFinishFeedback();
         store.setDone(entry.id, true);
       },

@@ -73,6 +73,9 @@ class Entry {
   /// 灵感永远不算“完成”，避免调用方漏判 kind。
   bool get isDone => isTodo && done;
 
+  /// 待办要至少写过一条感想才算真的做过，完成入口据此拦一道。
+  bool get canComplete => isTodo && notes.isNotEmpty;
+
   factory Entry.fromJson(Map<String, dynamic> json) {
     final notes = <Note>[];
     final rawNotes = json['notes'];
